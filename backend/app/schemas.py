@@ -197,6 +197,40 @@ class BotSummaryResponse(BaseModel):
     lessons_passed: int = 0
 
 
+class BotPupilUpsert(BaseModel):
+    """Bot says: 'this real Telegram user just pressed /start' — create or refresh."""
+    telegram_id: int = Field(ge=1)
+    first_name: str = Field(default="", max_length=128)
+    username: str | None = Field(default=None, max_length=64)
+
+
+class BotSetGrade(BaseModel):
+    telegram_id: int = Field(ge=1)
+    # Still explicitly chosen by the pupil (via bot buttons) — never guessed.
+    grade_id: int = Field(ge=1)
+
+
+class BotQuizSubmit(BaseModel):
+    telegram_id: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=8, max_length=64)
+    answers: list[AnswerIn]
+
+
+class BotAdminSubjectCreate(BaseModel):
+    telegram_id: int = Field(ge=1)
+    data: AdminSubjectCreate
+
+
+class BotAdminLessonCreate(BaseModel):
+    telegram_id: int = Field(ge=1)
+    data: AdminLessonCreate
+
+
+class BotAdminQuestionCreate(BaseModel):
+    telegram_id: int = Field(ge=1)
+    data: AdminQuestionCreate
+
+
 # ---------- progress / profile ----------
 class SubjectProgress(BaseModel):
     subject_name: str

@@ -389,3 +389,151 @@ def test_admin_can_create_full_lesson_flow(client: TestClient):
         headers=pupil,
     ).json()
     assert result["passed"] is True  # first option was the correct one
+
+
+# ---------- bot FULL experience (internal endpoints) ----------
+def _h(tok: str | None = None) -> dict:
+    return {"X-Bot-Token": tok if tok is not None else TEST_BOT_TOKEN}
+
+
+def test_internal_pupil_flow_requires_bot_token(client: TestClient):
+    assert client.get("/api/internal/pupil/subjects", params={"telegram_id": 1}).status_code == 401
+    assert client.post(
+        "/api/internal/pupils",
+        json={"telegram_id": 1, "first_name": "X"},
+        headers=_h("wrong-token"),
+    ).status_code == 401
+
+
+def test_internal_unknown_pupil_is_404(client: TestClient):
+    resp = client.get(
+        "/api/internal/pupil/subjects", params={"telegram_id": 42424242}, headers=_h()
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["error"] == "pupil_not_found"
+
+
+def test_bot_full_pupil_journey(client: TestClient):
+    """The whole learning loop works through bot-token endpoints alone."""
+    tg = 777501
+    # /start in the bot registers the pupil
+    up = client.post(
+        "/api/internal/pupils",
+        json={"telegram_id": tg, "first_name": "Botzoda", "username": "botzoda"},
+        headers=_h(),
+    )
+    assert up.status_code == 200
+    assert up.json()["known_user"] is True and up.json()["needs_onboarding"] is True
+
+    # No grade yet → same 409 rule as the Mini App (never guess)
+    subj = client.get("/api/internal/pupil/subjects", params={"telegram_id": tg}, headers=_h())
+    assert subj.status_code == 409
+    assert subj.json()["detail"]["error"] == "grade_not_selected"
+
+    # Grade picked via bot button
+    g = client.post(
+        "/api/internal/pupil/grade",
+        json={"telegram_id": tg, "grade_id": 1},
+        headers=_h(),
+    )
+    assert g.status_code == 200 and g.json()["grade_name"] == "1-sinf"
+
+    subjects = client.get(
+        "/api/internal/pupil/subjects", params={"telegram_id": tg}, headers=_h()
+    ).json()
+    math = next(s for s in subjects if s["slug"] == "matematika")
+    l1 = math["lessons"][0]
+
+    lesson = client.get(f"/api/internal/pupil/lesson/{l1['id']}", params={"telegram_id": tg}, headers=_h())
+    assert lesson.status_code == 200 and lesson.json()["explanation"]
+
+    v = client.post(f"/api/internal/pupil/lesson/{l1['id']}/viewed", params={"telegram_id": tg}, headers=_h())
+    assert v.json()["stars_granted"] is True
+
+    quiz = client.get(f"/api/internal/pupil/lesson/{l1['id']}/quiz", params={"telegram_id": tg}, headers=_h()).json()
+    assert "is_correct" not in str(quiz)  # answers never leak to the bot either
+    correct_texts = ["4", "6", "7", "5", "9"]
+    answers = []
+    for q, text in zip(quiz["questions"], correct_texts):
+        option = next(o for o in q["options"] if o["text"] == text)
+        answers.append({"question_id": q["id"], "option_id": option["id"]})
+    res = client.post(
+        f"/api/internal/pupil/lesson/{l1['id']}/quiz/submit",
+        json={"telegram_id": tg, "idempotency_key": str(uuid.uuid4()), "answers": answers},
+        headers=_h(),
+    ).json()
+    assert res["passed"] is True and res["stars_earned"] == 5
+
+    prog = client.get("/api/internal/pupil/progress", params={"telegram_id": tg}, headers=_h()).json()
+    assert prog["grade_name"] == "1-sinf"
+    assert prog["lessons_passed"] == 1 and prog["stars_total"] >= 7
+
+
+def test_internal_admin_guard_and_creation_flow(client: TestClient):
+    # a normal pupil registered via bot → internal admin is 403
+    client.post(
+        "/api/internal/pupils", json={"telegram_id": 777502, "first_name": "Odam"}, headers=_h()
+    )
+    ov = client.get("/api/internal/admin/overview", params={"telegram_id": 777502}, headers=_h())
+    assert ov.status_code == 403
+    assert ov.json()["detail"]["error"] == "not_admin"
+
+    # the allowlisted admin (ADMIN_TELEGRAM_IDS in conftest) works
+    client.post(
+        "/api/internal/pupils", json={"telegram_id": 999000111, "first_name": "Admin"}, headers=_h()
+    )
+    ov = client.get("/api/internal/admin/overview", params={"telegram_id": 999000111}, headers=_h())
+    assert ov.status_code == 200 and len(ov.json()) == 11
+
+    subj = client.post(
+        "/api/internal/admin/subjects",
+        json={"telegram_id": 999000111, "data": {"grade_id": 6, "name": "Botqurilish", "emoji": "🏗️"}},
+        headers=_h(),
+    )
+    assert subj.status_code == 201, subj.text
+    sid = subj.json()["id"]
+
+    les = client.post(
+        f"/api/internal/admin/subjects/{sid}/lessons",
+        json={
+            "telegram_id": 999000111,
+            "data": {
+                "title": "Poydevor",
+                "explanation": "Poydevor binoning eng asosiy qismi — u og'irlikni yerga beradi.",
+                "stars_reward": 4,
+                "pass_threshold_percent": 50,
+            },
+        },
+        headers=_h(),
+    )
+    assert les.status_code == 201, les.text
+    lid = les.json()["id"]
+
+    q = client.post(
+        f"/api/internal/admin/lessons/{lid}/questions",
+        json={
+            "telegram_id": 999000111,
+            "data": {
+                "text": "Poydevor nimaga xizmat qiladi?",
+                "kind": "single",
+                "options": [
+                    {"text": "Og'irlikni yerga beradi", "is_correct": True},
+                    {"text": "Bezak uchun", "is_correct": False},
+                ],
+            },
+        },
+        headers=_h(),
+    )
+    assert q.status_code == 201, q.text
+
+    # a 6-sinf pupil sees the new lesson through the bot endpoints
+    client.post(
+        "/api/internal/pupils", json={"telegram_id": 777503, "first_name": "Usta"}, headers=_h()
+    )
+    client.post("/api/internal/pupil/grade", json={"telegram_id": 777503, "grade_id": 6}, headers=_h())
+    subjects = client.get(
+        "/api/internal/pupil/subjects", params={"telegram_id": 777503}, headers=_h()
+    ).json()
+    botq = next(s for s in subjects if s["name"] == "Botqurilish")
+    assert botq["lessons"][0]["title"] == "Poydevor"
+    assert botq["lessons"][0]["unlocked"] is True

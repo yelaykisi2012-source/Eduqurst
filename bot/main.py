@@ -17,6 +17,9 @@ from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 
 import config
+from handlers import admin as admin_handlers
+from handlers import learn as learn_handlers
+from handlers import profile as profile_handlers
 from handlers import start as start_handlers
 
 
@@ -45,13 +48,22 @@ async def main() -> None:
     )
 
     dp = Dispatcher()
+    # Order matters: flow routers (with FSM states) run BEFORE the start
+    # router, whose catch-all only fires outside any state. The admin router
+    # comes first so its "leave menu" state handlers win over learn's.
+    dp.include_router(admin_handlers.router)
+    dp.include_router(learn_handlers.router)
+    dp.include_router(profile_handlers.router)
     dp.include_router(start_handlers.router)
 
     # Show the command list in Telegram's menu (the "/" button).
     await bot.set_my_commands(
         [
-            BotCommand(command="start", description="EduQuest'ni boshlash"),
-            BotCommand(command="app", description="Mini App'ni ochish"),
+            BotCommand(command="start", description="EduQuest’ni boshlash"),
+            BotCommand(command="lessons", description="📚 Darslar (bot ichida)"),
+            BotCommand(command="profile", description="⭐ Profilim"),
+            BotCommand(command="medallar", description="🏆 Yutuqlar"),
+            BotCommand(command="app", description="Mini App’ni ochish"),
             BotCommand(command="help", description="Qanday ishlaydi?"),
         ]
     )
