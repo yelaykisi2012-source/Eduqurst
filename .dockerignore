@@ -1,0 +1,18 @@
+# Safety net for builds using the repo root as Docker context (Render).
+# Git already excludes these, but belt-and-braces: never send secrets/local data to the builder.
+.env
+**/.env
+!**/.env.example
+.env.local
+.neon
+neon.ts
+*.db
+*.sqlite3
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+dist/
+*.log
+.git/
