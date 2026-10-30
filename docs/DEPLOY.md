@@ -56,11 +56,14 @@ Buni keyingi qadamda (`VITE_API_URL`) ishlatamiz.
 
 ---
 
-## B variant — Railway (muqobil, juda oson)
-1. https://railway.app → GitHub hisobi bilan kiring.
-2. “New Project” → “Deploy from GitHub repo” → Eduqurst repositasini ulanang.
-3. Root目录 `backend` bo‘lsin (yoki Monorepo bo‘lsa service path = `backend`).
-4. Railway `requirements.txt` + `Procfile`ni avtomatik aniqlaydi.
+## B variant — Railway (TANLANGAN: GitHub orqali, kod push qilingan)
+Kod allaqachon https://github.com/yelaykisi2012-source/Eduqurst da (`main` branch).
+1. https://railway.app → “Login with GitHub” hisobi bilan kiring.
+2. “New Project” → “Deploy from GitHub repo” → `yelaykisi2012-source/Eduqurst` repositasini tanlang.
+3. **Muhim:** service ochilgacha “Configure GitHub App” so‘ravini ruxsat eting (repo ko‘rinmasa shu sababli).
+4. Service yaratilgach: service → **Settings → Deploy → Root Directory** ni `backend` qilib belgilang.
+   (Buni qilmasangiz Railway repo tepasidagi `package.json`ni ko‘rib Node deb o‘ylaydi va build chalamasligi mumkin.)
+5. Railway `backend/requirements.txt` + `Procfile`ni avtomatik aniqlaydi (Python + uvicorn).
 5. “Variables” bo‘limiga xuddi yuqoridagi 4 ta o‘zgaruvchini kiriting
    (`DATABASE_URL`, `BOT_TOKEN`, `JWT_SECRET`, `CORS_ORIGINS`).
 6. “Settings → Networking → Generate Domain” → HTTPS URL oling.
