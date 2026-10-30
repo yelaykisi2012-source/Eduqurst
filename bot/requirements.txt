@@ -1,0 +1,8 @@
+# EduQuest bot dependencies.
+# Install (inside bot/ folder):
+#   py -m venv .venv
+#   .venv/Scripts/activate
+#   pip install -r requirements.txt
+
+aiogram>=3.15,<4.0
+python-dotenv>=1.0

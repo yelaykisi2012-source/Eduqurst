@@ -1,0 +1,1 @@
+"""EduQuest backend application package."""

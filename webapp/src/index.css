@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+/* Soft blue-and-white theme that matches Quest the robot. */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: #eff6ff;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}

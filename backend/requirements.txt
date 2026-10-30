@@ -1,0 +1,13 @@
+# EduQuest backend dependencies (Python 3.12+)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0,<3.0
+psycopg[binary]>=3.2
+alembic>=1.13
+pydantic-settings>=2.4
+PyJWT>=2.9
+python-dotenv>=1.0
+
+# tests
+pytest>=8.0
+httpx>=0.27

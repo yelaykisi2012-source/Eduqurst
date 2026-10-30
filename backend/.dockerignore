@@ -1,0 +1,17 @@
+# Keep secrets and local-only artifacts OUT of the deployed image.
+.env
+.env.local
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite3
+.pytest_cache/
+tests/
+neon.ts
+.neon
+Dockerfile
+.dockerignore
+fly.toml
+Procfile

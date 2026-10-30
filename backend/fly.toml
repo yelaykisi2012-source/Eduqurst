@@ -1,0 +1,27 @@
+# fly.io config for the EduQuest backend.
+# After `fly launch` you may get your own version; the important bits are the
+# internal_port (8000, matching the Dockerfile) and the /api/health check.
+app = "eduquest-api"          # <-- change to your unique global name
+primary_region = "tas"        # Tashkent — closest to users; change if you prefer
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"     # scale to zero to stay on the free tier
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Secrets — NEVER commit these
+.env
+
+# Node / Vite
+node_modules/
+dist/
+*.local
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# databases (local dev/test)
+*.db
+*.sqlite3
+.neon
+
+# Neon CLI pulled env
+.env.local
