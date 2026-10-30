@@ -19,6 +19,10 @@ BOT_TOKEN: str = os.getenv("BOT_TOKEN", "").strip()
 # HTTPS URL of the Mini App, used for the "open Mini App" button.
 MINI_APP_URL: str = os.getenv("MINI_APP_URL", "").strip()
 
+# Base URL of the FastAPI backend (e.g. https://eduqurst.onrender.com).
+# Used to personalise /start with the pupil's grade and stars.
+API_URL: str = os.getenv("API_URL", "").strip().rstrip("/")
+
 
 def _parse_admin_ids(raw: str) -> set[int]:
     """ADMIN_USER_IDS='111,222' -> {111, 222}. Invalid entries are ignored."""

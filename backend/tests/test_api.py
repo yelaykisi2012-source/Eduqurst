@@ -246,3 +246,146 @@ def test_changing_grade_keeps_previous_progress(client: TestClient):
     assert back["lessons_viewed"] == 1
     math = next(s for s in back["subjects"] if s["subject_name"] == "Matematika")
     assert math["total_lessons"] == 4
+
+
+# ---------- bot internal endpoint ----------
+from tests.conftest import TEST_BOT_TOKEN
+
+_BOT_HDRS = {"X-Bot-Token": TEST_BOT_TOKEN}
+
+
+def test_pupil_summary_rejects_missing_or_wrong_token(client: TestClient):
+    assert client.get("/api/internal/pupil-summary", params={"telegram_id": 1}).status_code == 401
+    assert client.get(
+        "/api/internal/pupil-summary",
+        params={"telegram_id": 1},
+        headers={"X-Bot-Token": "wrong"},
+    ).status_code == 401
+
+
+def test_pupil_summary_unknown_user(client: TestClient):
+    resp = client.get(
+        "/api/internal/pupil-summary", params={"telegram_id": 999999999}, headers=_BOT_HDRS
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["known_user"] is False
+    assert body["needs_onboarding"] is True
+
+
+def test_pupil_summary_reflects_real_grade_and_stars(client: TestClient):
+    tg_id = 777001
+    headers = login_as(client, {"id": tg_id, "first_name": "BotTest"})
+    pick_grade(client, headers, "1-sinf")
+    # earn one star by viewing a lesson
+    subjects = client.get("/api/subjects", headers=headers).json()
+    math = next(s for s in subjects if s["slug"] == "matematika")
+    client.post(f"/api/lessons/{math['lessons'][0]['id']}/viewed", headers=headers)
+
+    body = client.get(
+        "/api/internal/pupil-summary", params={"telegram_id": tg_id}, headers=_BOT_HDRS
+    ).json()
+    assert body["known_user"] is True
+    assert body["needs_onboarding"] is False
+    assert body["first_name"] == "BotTest"
+    assert body["grade_name"] == "1-sinf"
+    assert body["stars_total"] >= 1
+    assert body["lessons_viewed"] == 1
+
+
+# ---------- admin panel ----------
+def test_admin_endpoints_forbid_non_admin(client: TestClient, grade1_auth):
+    assert client.get("/api/admin/overview", headers=grade1_auth).status_code == 403
+    assert client.post(
+        "/api/admin/subjects",
+        json={"grade_id": 5, "name": "Fizika", "emoji": "⚛️"},
+        headers=grade1_auth,
+    ).status_code == 403
+    me = client.get("/api/me", headers=grade1_auth).json()
+    assert me["is_admin"] is False
+
+
+def test_admin_can_create_full_lesson_flow(client: TestClient):
+    admin = login_as(client, {"id": 999000111, "first_name": "Admin"})
+    assert client.get("/api/me", headers=admin).json()["is_admin"] is True
+
+    # 1) subject for 5-sinf
+    subj = client.post(
+        "/api/admin/subjects",
+        json={"grade_id": 5, "name": "Fizika", "emoji": "⚛️"},
+        headers=admin,
+    )
+    assert subj.status_code == 201, subj.text
+    subject = subj.json()
+    assert subject["slug"].startswith("fizika")
+
+    # 2) lesson inside it
+    lesson = client.post(
+        f"/api/admin/subjects/{subject['id']}/lessons",
+        json={
+            "title": "Kuch va harakat",
+            "explanation": "Kuch — jismni harakatga keltiradi yoki to'xtatadi.",
+            "stars_reward": 5,
+            "pass_threshold_percent": 60,
+        },
+        headers=admin,
+    )
+    assert lesson.status_code == 201, lesson.text
+    lesson_id = lesson.json()["id"]
+
+    # 3) a question with options
+    q = client.post(
+        f"/api/admin/lessons/{lesson_id}/questions",
+        json={
+            "text": "Kuch birligi nima?",
+            "kind": "single",
+            "options": [
+                {"text": "Nyuton", "is_correct": True},
+                {"text": "Metrr", "is_correct": False},
+                {"text": "Sekund", "is_correct": False},
+            ],
+        },
+        headers=admin,
+    )
+    assert q.status_code == 201, q.text
+
+    # 4) single-choice validation: two correct answers rejected
+    bad = client.post(
+        f"/api/admin/lessons/{lesson_id}/questions",
+        json={
+            "text": "Ikki to'g'ri javobli savol",
+            "kind": "single",
+            "options": [
+                {"text": "a", "is_correct": True},
+                {"text": "b", "is_correct": True},
+            ],
+        },
+        headers=admin,
+    )
+    assert bad.status_code == 422
+
+    # 5) overview shows the new content
+    ov = client.get("/api/admin/overview", headers=admin).json()
+    g5 = next(g for g in ov if g["grade_name"] == "5-sinf")
+    fiz = next(s for s in g5["subjects"] if s["name"] == "Fizika")
+    assert fiz["lesson_count"] == 1
+
+    # 6) a real 5-sinf pupil now sees Fizika with the lesson
+    pupil = login_as(client, {"id": 888000222, "first_name": "Sardor"})
+    pick_grade(client, pupil, "5-sinf")
+    subjects = client.get("/api/subjects", headers=pupil).json()
+    fiz_p = next(s for s in subjects if s["name"] == "Fizika")
+    assert fiz_p["lessons"][0]["title"] == "Kuch va harakat"
+    # quiz is fetchable and gradeable
+    quiz = client.get(f"/api/lessons/{lesson_id}/quiz", headers=pupil).json()
+    client.post(f"/api/lessons/{lesson_id}/viewed", headers=pupil)
+    result = client.post(
+        f"/api/lessons/{lesson_id}/quiz/submit",
+        json={
+            "idempotency_key": str(uuid.uuid4()),
+            "answers": [{"question_id": quiz["questions"][0]["id"],
+                         "option_id": quiz["questions"][0]["options"][0]["id"]}],
+        },
+        headers=pupil,
+    ).json()
+    assert result["passed"] is True  # first option was the correct one

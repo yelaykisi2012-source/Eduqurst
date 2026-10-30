@@ -10,7 +10,18 @@
  * VITE_API_URL is a build-time (public) value, not a secret. If it is missing
  * we fail loudly with an honest message instead of silently misbehaving.
  */
-import type { Grade, Profile, Progress, SubjectItem } from "./types";
+import type {
+  AdminLesson,
+  AdminSubject,
+  Grade,
+  GradeOverview,
+  LessonDetail,
+  Profile,
+  Progress,
+  Quiz,
+  QuizResult,
+  SubjectItem,
+} from "./types";
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 
@@ -84,4 +95,38 @@ export const api = {
   subjects: (token: string) => req<SubjectItem[]>("/api/subjects", { token }),
 
   progress: (token: string) => req<Progress>("/api/me/progress", { token }),
+
+  lesson: (token: string, id: number) => req<LessonDetail>(`/api/lessons/${id}`, { token }),
+
+  markViewed: (token: string, id: number) =>
+    req<{ ok: boolean; stars_granted: boolean; new_achievements: string[] }>(
+      `/api/lessons/${id}/viewed`,
+      { method: "POST", token },
+    ),
+
+  quiz: (token: string, id: number) => req<Quiz>(`/api/lessons/${id}/quiz`, { token }),
+
+  submitQuiz: (token: string, id: number, body: unknown) =>
+    req<QuizResult>(`/api/lessons/${id}/quiz/submit`, { method: "POST", token, body }),
+
+  // ---------- admin ----------
+  adminOverview: (token: string) => req<GradeOverview[]>("/api/admin/overview", { token }),
+
+  adminCreateSubject: (token: string, body: { grade_id: number; name: string; emoji: string }) =>
+    req<AdminSubject>("/api/admin/subjects", { method: "POST", token, body }),
+
+  adminCreateLesson: (
+    token: string,
+    subjectId: number,
+    body: { title: string; explanation: string; stars_reward: number; pass_threshold_percent: number },
+  ) => req<AdminLesson>(`/api/admin/subjects/${subjectId}/lessons`, { method: "POST", token, body }),
+
+  adminLessons: (token: string, subjectId: number) =>
+    req<AdminLesson[]>(`/api/admin/subjects/${subjectId}/lessons`, { token }),
+
+  adminCreateQuestion: (
+    token: string,
+    lessonId: number,
+    body: { text: string; kind: string; options: { text: string; is_correct: boolean }[] },
+  ) => req<{ id: number }>(`/api/admin/lessons/${lessonId}/questions`, { method: "POST", token, body }),
 };

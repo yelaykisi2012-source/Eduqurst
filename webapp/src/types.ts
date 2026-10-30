@@ -14,6 +14,31 @@ export interface Profile {
   grade_id: number | null;
   grade_name: string | null;
   needs_grade_selection: boolean;
+  is_admin: boolean;
+}
+
+/** Admin dashboard data: one grade with its subjects. */
+export interface GradeOverview {
+  grade_id: number;
+  grade_name: string;
+  subjects: AdminSubject[];
+}
+
+export interface AdminSubject {
+  id: number;
+  name: string;
+  slug: string;
+  emoji: string;
+  grade_id: number;
+  lesson_count: number;
+}
+
+export interface AdminLesson {
+  id: number;
+  title: string;
+  level_order: number;
+  subject_name: string;
+  question_count: number;
 }
 
 export interface LessonSummary {
@@ -32,6 +57,65 @@ export interface SubjectItem {
   slug: string;
   emoji: string;
   lessons: LessonSummary[];
+}
+
+/** Full lesson payload from GET /api/lessons/{id} (pupil view). */
+export interface LessonDetail {
+  id: number;
+  subject_name: string;
+  title: string;
+  explanation: string;
+  video_url: string | null;
+  level_order: number;
+  stars_reward: number;
+  pass_threshold_percent: number;
+  materials: Material[];
+  viewed: boolean;
+  passed: boolean;
+}
+
+export interface Material {
+  id: number;
+  kind: string; // slide | image | text
+  title: string;
+  content: string;
+  order_index: number;
+}
+
+/** Quiz fetched from GET /api/lessons/{id}/quiz — never contains answers. */
+export interface Quiz {
+  lesson_id: number;
+  lesson_title: string;
+  pass_threshold_percent: number;
+  questions: QuizQuestion[];
+}
+
+export interface QuizQuestion {
+  id: number;
+  text: string;
+  kind: string; // single | text | image
+  image_url: string | null;
+  options: QuizOption[];
+}
+
+export interface QuizOption {
+  id: number;
+  text: string;
+}
+
+/** Result of POST /api/lessons/{id}/quiz/submit (graded on the server). */
+export interface QuizResult {
+  attempt_id: number;
+  total_count: number;
+  correct_count: number;
+  score_percent: number;
+  passed: boolean;
+  stars_earned: number;
+  stars_total: number;
+  next_level_unlocked: boolean;
+  message_uz: string;
+  new_achievements: string[];
+  duplicate: boolean;
 }
 
 export interface SubjectProgress {

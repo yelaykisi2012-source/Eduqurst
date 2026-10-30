@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import QuestMascot from "./components/QuestMascot";
 import SubjectCard from "./components/SubjectCard";
+import SubjectLessons from "./components/SubjectLessons";
 import GradePicker from "./components/GradePicker";
+import LessonPage from "./components/LessonPage";
+import QuizPage from "./components/QuizPage";
+import ResultScreen from "./components/ResultScreen";
+import AdminPage from "./components/AdminPage";
+import { AchievementsPage, ProfilePage } from "./components/Pages";
 import { api, ApiError } from "./api";
-import type { Grade, Profile, Progress, SubjectItem } from "./types";
+import type { Grade, Profile, Progress, QuizResult, SubjectItem } from "./types";
 
 type Phase =
   | "boot"
@@ -13,6 +19,17 @@ type Phase =
   | "onboarding"
   | "home"
   | "error";
+
+/** In-app navigation after the pupil reaches "home". */
+type View =
+  | { kind: "home" }
+  | { kind: "subject"; subjectId: number }
+  | { kind: "lesson"; lessonId: number; subjectId: number }
+  | { kind: "quiz"; lessonId: number; subjectId: number }
+  | { kind: "result"; lessonId: number; subjectId: number; result: QuizResult }
+  | { kind: "achievements" }
+  | { kind: "profile" }
+  | { kind: "admin" };
 
 const GRADIENTS = [
   "from-blue-500 to-blue-700",
@@ -32,6 +49,8 @@ export default function App() {
   const [grades, setGrades] = useState<Grade[]>([]);
   const [subjects, setSubjects] = useState<SubjectItem[]>([]);
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [view, setView] = useState<View>({ kind: "home" });
+  const [quizNonce, setQuizNonce] = useState(0); // force fresh QuizPage on retry
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -92,6 +111,7 @@ export default function App() {
       const me = await api.setGrade(token, grade.id);
       setProfile(me);
       await loadHome(token);
+      setView({ kind: "home" });
       setPhase("home");
     } catch (e) {
       setError(describe(e));
@@ -114,8 +134,27 @@ export default function App() {
     setPhase("onboarding");
   };
 
+  /** After a quiz result: refresh counts and return to the lesson ladder. */
+  const finishQuiz = async (subjectId: number) => {
+    try {
+      await loadHome(token);
+    } catch {
+      /* counts refresh is best-effort; the pupil still sees fresh data next open */
+    }
+    setView({ kind: "subject", subjectId });
+  };
+
   const name = profile?.first_name || progress?.first_name || "Qahramon";
   const gradeLabel = profile?.grade_name ?? progress?.grade_name;
+  const activeSubject =
+    view.kind !== "home" && "subjectId" in view
+      ? subjects.find((s) => s.id === view.subjectId)
+      : undefined;
+
+  const navTo = (v: View) => {
+    setView(v);
+    window.scrollTo({ top: 0 });
+  };
 
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col px-4 pb-24 pt-6">
@@ -135,20 +174,20 @@ export default function App() {
         </div>
       </header>
 
-      {/* Mascot + greeting */}
-      <section className="mt-6 flex flex-col items-center rounded-3xl bg-white p-6 shadow-md">
-        <QuestMascot size={110} />
-        <p className="mt-3 text-center text-base font-semibold text-blue-900">
-          Salom! Men Quest 🤖
-        </p>
-        <p className="mt-1 text-center text-sm text-slate-500">
-          {phase === "onboarding"
-            ? "Boshlash uchun sinfini tanla!"
-            : "Birga bilimlar olamiga sayohat qilamiz!"}
-        </p>
-      </section>
+      {/* Mascot + greeting (home only, to keep lesson screens focused) */}
+      {phase === "home" && view.kind === "home" && (
+        <section className="mt-6 flex flex-col items-center rounded-3xl bg-white p-6 shadow-md">
+          <QuestMascot size={110} />
+          <p className="mt-3 text-center text-base font-semibold text-blue-900">
+            Salom! Men Quest 🤖
+          </p>
+          <p className="mt-1 text-center text-sm text-slate-500">
+            Birga bilimlar olamiga sayohat qilamiz!
+          </p>
+        </section>
+      )}
 
-      {/* Main content by phase */}
+      {/* Main content */}
       {phase === "boot" || phase === "busy" ? (
         <p className="mt-8 text-center text-sm font-medium text-blue-500">Yuklanmoqda… ⏳</p>
       ) : phase === "no_backend" ? (
@@ -165,8 +204,8 @@ export default function App() {
         <Notice title="Xatolik yuz berdi" body={error} tone="error" />
       ) : phase === "onboarding" ? (
         <GradePicker grades={grades} busy={busy} onPick={pickGrade} />
-      ) : (
-        /* home */
+      ) : view.kind === "home" ? (
+        /* ---------- HOME: subject cards ---------- */
         <section className="mt-6 space-y-3">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-sm font-bold uppercase tracking-wide text-blue-400">
@@ -186,8 +225,8 @@ export default function App() {
                 Bu sinf uchun darslar hozircha tayyorlanmoqda 🚧
               </p>
               <p className="mt-1 text-xs text-blue-400">
-                Namuna kontenti hozircha faqat 1-sinf’da. Admin panel orqali
-                barcha sinflarga darslar qo‘shiladi.
+                1–4-sinflarda namuna darslar bor; qolgan sinflar admin panel
+                orqali to‘ldiriladi.
               </p>
             </div>
           ) : (
@@ -201,20 +240,61 @@ export default function App() {
                   emoji={s.emoji}
                   gradient={GRADIENTS[i % GRADIENTS.length]}
                   subtitle={total ? `${done}/${total} bosqich tugatilgan →` : "Tez orada 🚧"}
-                  onClick={() => showToast(`«${s.name}» dars sahifasi tez orada ochiladi 🚧`)}
+                  onClick={() =>
+                    total ? navTo({ kind: "subject", subjectId: s.id }) : showToast("Bu fanda darslar hozircha yo‘q 🚧")
+                  }
                 />
               );
             })
           )}
-
-          {/* Achievements teaser */}
-          <div className="mt-6 rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50 p-4 text-center">
-            <p className="text-sm font-semibold text-blue-700">🏆 Yutuqlar va darajalar</p>
-            <p className="mt-1 text-xs text-blue-400">
-              Dars va viktorina sahifalari keyingi bosqichda qo‘shiladi.
-            </p>
-          </div>
         </section>
+      ) : view.kind === "subject" && activeSubject ? (
+        /* ---------- SUBJECT: lesson ladder ---------- */
+        <SubjectLessons
+          subject={activeSubject}
+          onOpenLesson={(lessonId) =>
+            navTo({ kind: "lesson", lessonId, subjectId: activeSubject.id })
+          }
+          onBack={() => navTo({ kind: "home" })}
+        />
+      ) : view.kind === "lesson" ? (
+        /* ---------- LESSON: explanation + mark viewed ---------- */
+        <LessonPage
+          token={token}
+          lessonId={view.lessonId}
+          onBack={() => navTo({ kind: "subject", subjectId: view.subjectId })}
+          onViewed={() => loadHome(token).catch(() => undefined)}
+          onStartQuiz={() =>
+            navTo({ kind: "quiz", lessonId: view.lessonId, subjectId: view.subjectId })
+          }
+        />
+      ) : view.kind === "quiz" ? (
+        /* ---------- QUIZ: questions ---------- */
+        <QuizPage
+          key={quizNonce}
+          token={token}
+          lessonId={view.lessonId}
+          onBack={() => navTo({ kind: "lesson", lessonId: view.lessonId, subjectId: view.subjectId })}
+          onResult={(r) =>
+            navTo({ kind: "result", lessonId: view.lessonId, subjectId: view.subjectId, result: r })
+          }
+        />
+      ) : view.kind === "result" ? (
+        /* ---------- RESULT: server verdict ---------- */
+        <ResultScreen
+          result={view.result}
+          onRetry={() => {
+            setQuizNonce((n) => n + 1);
+            navTo({ kind: "quiz", lessonId: view.lessonId, subjectId: view.subjectId });
+          }}
+          onContinue={() => finishQuiz(view.subjectId)}
+        />
+      ) : view.kind === "achievements" ? (
+        <AchievementsPage progress={progress} />
+      ) : view.kind === "admin" ? (
+        <AdminPage token={token} notify={showToast} />
+      ) : (
+        <ProfilePage profile={profile} progress={progress} onChangeGrade={changeGrade} />
       )}
 
       {/* Toast */}
@@ -224,30 +304,42 @@ export default function App() {
         </div>
       )}
 
-      {/* Bottom nav (only Home is real so far) */}
+      {/* Bottom nav — all tabs are real; Admin tab appears only for admins */}
       <nav className="fixed inset-x-0 bottom-0 mx-auto flex max-w-md justify-around border-t border-blue-100 bg-white py-3">
         {[
-          { label: "Bosh sahifa", emoji: "🏠", active: true },
-          { label: "Darslar", emoji: "📚", active: false },
-          { label: "Yutuqlar", emoji: "🏆", active: false },
-          { label: "Profil", emoji: "👤", active: false },
-        ].map((item) =>
-          item.active ? (
-            <span key={item.label} className="flex flex-col items-center text-xs font-bold text-blue-700">
+          { key: "home", label: "Bosh sahifa", emoji: "🏠" },
+          { key: "lessons", label: "Darslar", emoji: "📚" },
+          { key: "achievements", label: "Yutuqlar", emoji: "🏆" },
+          { key: "profile", label: "Profil", emoji: "👤" },
+          ...(profile?.is_admin ? [{ key: "admin", label: "Admin", emoji: "🛠" }] : []),
+        ].map((item) => {
+          const active =
+            item.key === "home"
+              ? view.kind === "home"
+              : item.key === "lessons"
+                ? view.kind === "subject" || view.kind === "lesson" || view.kind === "quiz" || view.kind === "result"
+                : view.kind === item.key;
+          const go = () => {
+            if (phase !== "home") return;
+            if (item.key === "home" || item.key === "lessons") navTo({ kind: "home" });
+            else navTo({ kind: item.key as "achievements" | "profile" | "admin" });
+          };
+          return active ? (
+            <span key={item.key} className="flex flex-col items-center text-xs font-bold text-blue-700">
               <span className="text-xl">{item.emoji}</span>
               {item.label}
             </span>
           ) : (
             <button
-              key={item.label}
-              onClick={() => showToast(`«${item.label}» bo‘limi tez orada 🚧`)}
+              key={item.key}
+              onClick={go}
               className="flex flex-col items-center text-xs text-slate-400"
             >
               <span className="text-xl">{item.emoji}</span>
               {item.label}
             </button>
-          ),
-        )}
+          );
+        })}
       </nav>
     </div>
   );

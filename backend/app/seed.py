@@ -105,8 +105,279 @@ def _ensure_grades(db: Session) -> dict[str, Grade]:
     return grades
 
 
+# ---------------------------------------------------------------------------
+# Sample content for grades 2..4 (age-appropriate Uzbek curriculum snippets).
+# Shape: grade_no -> [(subject name, slug, emoji, [ (lesson title, explanation,
+#        [ (question text, options, correct option index) ]) ]) ]
+# Grades 5..11 stay empty until the admin panel fills them with real content.
+# ---------------------------------------------------------------------------
+GRADES_2_4: dict[int, list[tuple[str, str, str, list[tuple[str, str, list[tuple[str, list[str], int]]]]]]] = {
+    2: [
+        (
+            "Matematika", "matematika", "📐",
+            [
+                (
+                    "100 ichida qo'shish va ayirish",
+                    "Ikki xonali sonlarda ham xuddi bir xonali kabi ishlaymiz:\n\n"
+                    "20 + 30 = 50 (o'nliklarni qo'shamiz: 2 + 3 = 5)\n"
+                    "70 − 40 = 30 (7 o'nlikdan 4 o'nlikni olamiz)\n\n"
+                    "Agar birlar yetishmasa, o'nlikdan \"qarzga\" olamiz: 32 − 5 → 32 dan 2 ni olsak 30, "
+                    "yana 3 ni olsak 27. Demak 32 − 5 = 27!",
+                    [
+                        ("30 + 40 nechchi?", ["60", "70", "80"], 1),
+                        ("80 − 30 nechchi?", ["40", "50", "60"], 1),
+                        ("45 + 5 nechchi?", ["40", "50", "55"], 1),
+                    ],
+                ),
+                (
+                    "Ko'paytirish nima?",
+                    "Ko'paytirish — bir xil sonni tez-tez qo'shishning qisqa yo'li!\n\n"
+                    "2 + 2 + 2 = 6 → buni 2 × 3 = 6 deb yozamiz.\n"
+                    "5 + 5 + 5 = 15 → 5 × 3 = 15.\n\n"
+                    "\"×\" belgisi \"marta\" degani: 4 × 2 — \"4 ni 2 marta olish\".",
+                    [
+                        ("2 × 4 nechchi?", ["6", "8", "10"], 1),
+                        ("5 × 3 nechchi?", ["10", "15", "20"], 1),
+                        ("3 + 3 + 3 qisqa yozuvda?", ["3 × 3", "3 × 2", "9 × 1"], 0),
+                    ],
+                ),
+                (
+                    "Soat va vaqt",
+                    "Soatda ikki milliq bor: qisqasi — soatni, uzuni — daqiqani ko'rsatadi.\n\n"
+                    "1 soat = 60 daqiqa.\n"
+                    "Kun = 24 soat. Tong, kunduz, kech va tunda bo'linadi.\n\n"
+                    "Soat 3 ni ko'rsatsa, maktabdan chiqish vaqti kelgan demak! 🕒",
+                    [
+                        ("1 soatda nechchi daqiqa bor?", ["30", "50", "60"], 2),
+                        ("Kunda nechchi soat bor?", ["12", "24", "48"], 1),
+                        ("Soatning uzun milliqi nimani ko'rsatadi?", ["soatni", "daqiqani", "kunni"], 1),
+                    ],
+                ),
+            ],
+        ),
+        (
+            "Ona tili", "ona-tili", "📖",
+            [
+                (
+                    "Bo'g'inlar",
+                    "So'zlar bo'g'inlarga bo'linadi. Har bir bo'g'inda kamida bitta unli tovush bo'ladi!\n\n"
+                    "KITOB → KI-TOB (2 bo'g'in)\n"
+                    "MAKTAB → MAK-TAB (2 bo'g'in)\n"
+                    "ANOR → A-NOR (2 bo'g'in)\n\n"
+                    "Qo'lingni jag'ingga qo'yib gapirib ko'r — jag' har bir bo'ginda pastga tushadi!",
+                    [
+                        ("\"maktab\" so'zida nechta bo'g'in bor?", ["1", "2", "3"], 1),
+                        ("\"olma\" so'zi qanday bo'g'inlanadi?", ["ol-ma", "o-lma", "olm-a"], 0),
+                        ("\"dars\" so'zida nechta bo'g'in bor?", ["1", "2", "3"], 0),
+                    ],
+                ),
+                (
+                    "Yakka va ko'plik",
+                    "Bitta narsa — YAKKA: olma, kitob, dost.\n"
+                    "Bir nechta narsa — KO'PLIK: olmalar, kitoblar, do'stlar.\n\n"
+                    "O'zbek tilida ko'plikda \"-lar\" qo'shimchasi ishlatiladi:\n"
+                    "kitob → kitoblar, maktab → maktablar.\n\n"
+                    "Diqqat: son bilan kelganda ham ko'plik aytiladi: \"3 ta olma\" (olmalar emas).",
+                    [
+                        ("\"daraxt\" ning ko'pligi?", ["daraxtlar", "daraxtlar", "daraxtsiz"], 0),
+                        ("Qaysi so'z yakka?", ["kitoblar", "kitob", "dasturlar"], 1),
+                        ("\"5 ta ... olma\" — qaysi to'g'ri?", ["olmalar", "olma", "olmalarni"], 1),
+                    ],
+                ),
+            ],
+        ),
+    ],
+    3: [
+        (
+            "Matematika", "matematika", "📐",
+            [
+                (
+                    "Ko'paytirish jadvali",
+                    "Ko'paytirish jadvalini yodlasang — barcha masalalar osonlashadi!\n\n"
+                    "2 ga: 2, 4, 6, 8, 10, 12, 14, 16, 18 (har safar 2 qo'shiladi)\n"
+                    "5 ga: 5, 10, 15, 20, 25... (oxiri 0 yoki 5 bo'ladi)\n"
+                    "10 ga: sonning ortiga 0 qo'shasang bo'ldi: 7 × 10 = 70 🎉",
+                    [
+                        ("6 × 5 nechchi?", ["25", "30", "35"], 1),
+                        ("7 × 2 nechchi?", ["12", "14", "16"], 1),
+                        ("9 × 10 nechchi?", ["90", "91", "19"], 0),
+                    ],
+                ),
+                (
+                    "Bo'lish — ko'paytirishning teskarisi",
+                    "Bo'lish — biror narsani teng bo'lish degani.\n\n"
+                    "12 ta olmani 3 do'stga teng bo'lsak: 12 : 3 = 4 (har biriga 4 tadan).\n"
+                    "Tekshirish: 4 × 3 = 12 ✅\n\n"
+                    "Ko'paytirishni bilsang — bo'lishni ham bilasan!",
+                    [
+                        ("15 : 3 nechchi?", ["3", "5", "6"], 1),
+                        ("20 : 5 nechchi?", ["4", "5", "10"], 0),
+                        ("18 : 2 nechchi?", ["8", "9", "10"], 1),
+                    ],
+                ),
+                (
+                    "Masalalar yechish",
+                    "Masala yechishning 4 qadami:\n\n"
+                    "1️⃣ O'qi — nima ma'lum, nima nomalum?\n"
+                    "2️⃣ Reja tuz — qaysi amal kerak?\n"
+                    "3️⃣ Hisobla\n"
+                    "4️⃣ Tekshir — javob mantiqiymi?\n\n"
+                    "Masalan: 3 qutida 4 tadan qalam bor. Jami? 3 × 4 = 12 qalam. ✏️",
+                    [
+                        ("2 xonada 5 tadan stul bor. Jami nechchi stul?", ["7", "10", "12"], 1),
+                        ("15 ta shirini 5 bolaga teng bo'lishdi. Har biriga?", ["3", "4", "5"], 0),
+                        ("Anvar 8 ta olma sotib oldi, 3 tasini yedi. Qancha qoldi?", ["5", "6", "11"], 0),
+                    ],
+                ),
+            ],
+        ),
+        (
+            "Ona tili", "ona-tili", "📖",
+            [
+                (
+                    "Ot so'z turkumi",
+                    "OT — narsalarning nomidir. Otga \"kim?\" yoki \"nima?\" deb savol beramiz.\n\n"
+                    "Bola KIM? ✅ (ot)\n"
+                    "Kitob NIMA? ✅ (ot)\n"
+                    "Yugurish — harakat, bu ot emas!\n\n"
+                    "Otlar Jonli (odam, hayvon, o'simlik) va Jonsiz (mehmon, stol, suv) bo'ladi.",
+                    [
+                        ("Qaysi so'z ot?", ["chiroyli", "darakht", "yugurdi"], 1),
+                        ("Otgaga qanday savol beriladi?", ["qanday?", "kim? nima?", "qachon?"], 1),
+                        ("\"O'qituvchi\" — qaysi ot?", ["jonli", "jonsiz", "harakat"], 0),
+                    ],
+                ),
+                (
+                    "Sifat so'z turkumi",
+                    "SIFAT — narsaning rangi, shakli, ta'mi va holatini bildiradi.\n"
+                    "Sifatga \"qanday?\" degan savol beriladi.\n\n"
+                    "Ko'k osmon (qanday? — ko'k) 🌌\n"
+                    "Shirin olma (qanday? — shirin) 🍎\n"
+                    "Baland tog' (qanday? — baland) ⛰️",
+                    [
+                        ("\"chiroyli gul\" da qaysi so'z sifat?", ["gul", "chiroyli", "ikkalasi"], 1),
+                        ("Sifatga qanday savol beriladi?", ["kim?", "nima?", "qanday?"], 2),
+                        ("Qaysi so'z sifat?", ["tez", "kosha", "yugurish"], 0),
+                    ],
+                ),
+            ],
+        ),
+    ],
+    4: [
+        (
+            "Matematika", "matematika", "📐",
+            [
+                (
+                    "Ko'p xonali sonlar",
+                    "4 xonali sonlarni o'qimni o'rganamiz: 3 572\n\n"
+                    "3 — mingliklar | 5 — yuzliklar | 7 — o'nliklar | 2 — birlar\n\n"
+                    "3 572 = 3000 + 500 + 70 + 2 — \"uch ming besh yuz yetti yil ikki\".\n"
+                    "Sonlarni xonalariga ajratib yozish — katta yordamchi! 🧠",
+                    [
+                        ("4 026 sonida nechta yuzlik bor?", ["2", "0", "4"], 1),
+                        ("3 ming + 5 yuz = ?", ["305", "3500", "350"], 1),
+                        ("\"2 ming 1 yuz 5\" raqamda?", ["215", "2105", "2015"], 1),
+                    ],
+                ),
+                (
+                    "Kasrlar bilan tanishuv",
+                    "Pitsani 4 teng bo'lakka bo'ldik. 1 bo'lak olding — sen pitsaning 1/4 qismini olding! 🍕\n\n"
+                    "Kasr ikki qismdan: SONURATCH (yuqorida) va MAHRACH (pastda).\n"
+                    "1/2 — birdan ikki bo'lakdan biri (YARIM).\n"
+                    "3/4 — to'rt bo'lakdan uchta.\n\n"
+                    "Chizma chizib ko'rsang — hamma narsa tushunarli bo'ladi!",
+                    [
+                        ("Olmani 2 teng qismga bo'lsak, 1 qismi — ?", ["1/2", "2/1", "1/3"], 0),
+                        ("3/4 kasrda mahrach nechchi?", ["3", "4", "7"], 1),
+                        ("Qaysi kasr katta: 1/2 yoki 1/4?", ["1/2", "1/4", "teng"], 0),
+                    ],
+                ),
+                (
+                    "Perimetr va maydon",
+                    "PERIMETR — shaklning tashqi chegarasi uzunligi. Barcha tomonlarni qo'shasan.\n"
+                    "To'g'ri burchakli uchburchak... emas, to'rtburchak: a + b + a + b.\n\n"
+                    "MAYDON — shakl ichidagi joy. To'rtburchakda: a × b.\n\n"
+                    "Xona 5 m va 3 m: perimetr = 16 m, maydon = 15 m² 📏",
+                    [
+                        ("Tomoni 4 sm bo'lgan kvadrat perimetri?", ["8", "16", "20"], 1),
+                        ("5 m × 2 m to'rtburchak maydoni?", ["7 m²", "10 m²", "14 m²"], 1),
+                        ("Perimetr nimani o'lchaydi?", ["ichki joy", "chegara uzunligi", "og'irlik"], 1),
+                    ],
+                ),
+            ],
+        ),
+        (
+            "Ona tili", "ona-tili", "📖",
+            [
+                (
+                    "Fe'l so'z turkumi",
+                    "FE'L — harakat, ish-harakatni bildiradi. \"Nima qildi?\" savoliga javob beradi.\n\n"
+                    "Bola O'QIDI 📖 | Qush UCHDI 🐦 | Oy YORIDI 🌙\n\n"
+                    "Fe'llar zamonga bo'linadi:\n"
+                    "o'tgan zamon (-di): yozdi\n"
+                    "hozirgi zamon (-moqda): yozmoqda\n"
+                    "kelasi zamon (-adi): yozadi",
+                    [
+                        ("Qaysi so'z fe'l?", ["kitob", "sekindi", "yugurdi"], 2),
+                        ("\"U qo'shiq aytmoqda\" — qaysi zamon?", ["o'tgan", "hozirgi", "kelasi"], 1),
+                        ("Fe'lga qanday savol beriladi?", ["qanday?", "kim?", "nima qildi?"], 2),
+                    ],
+                ),
+                (
+                    "Gapning bosh a'zolari",
+                    "Har bir gapda ikki BOSH a'zo bor:\n\n"
+                    "EGA — kim haqida gap ketayotgan (kim? nima?)\n"
+                    "KO'LLIK — nima qildi? (nega? qachon?)\n\n"
+                    "\"Salima kitob o'qidi.\" → Salima (ega) o'qidi (kolluk).\n"
+                    "Ega odatda ot, kolluk fe'l bo'ladi!",
+                    [
+                        ("\"Bola bog'da o'ynadi\" — gapning ega?", ["bog'da", "bola", "o'ynadi"], 1),
+                        ("Kolluk nimani bildiradi?", ["kimni", "ish-harakatni", "joyini"], 1),
+                        ("\"Quyosh chiqdi\" — kolluk qaysi?", ["quyosh", "chiqdi", "yo'q"], 1),
+                    ],
+                ),
+            ],
+        ),
+    ],
+}
+
+
+def _ensure_grade_content(db: Session, grades: dict[str, Grade]) -> bool:
+    """Add sample subjects/lessons/quizzes for grades 2..4 (idempotent).
+
+    Content is written per grade with grade-scoped slugs ("matematika-2"),
+    because Subject.slug is globally unique. Re-running never duplicates:
+    each subject is skipped when its slug already exists.
+    """
+    created = False
+    for grade_no, subjects in GRADES_2_4.items():
+        grade = grades[f"{grade_no}-sinf"]
+        for s_idx, (s_name, s_slug, s_emoji, lessons) in enumerate(subjects, start=1):
+            slug = f"{s_slug}-{grade_no}"
+            if db.scalar(select(Subject).where(Subject.slug == slug)) is not None:
+                continue
+            subject = Subject(
+                grade_id=grade.id, name=s_name, slug=slug, emoji=s_emoji,
+                order_index=s_idx,
+            )
+            db.add(subject)
+            db.flush()
+            for l_order, (title, explanation, questions) in enumerate(lessons, start=1):
+                lesson = Lesson(
+                    subject_id=subject.id, title=title, level_order=l_order,
+                    explanation=explanation, stars_reward=5,
+                    pass_threshold_percent=60,
+                )
+                db.add(lesson)
+                db.flush()
+                for q_order, (text, opts, correct) in enumerate(questions, start=1):
+                    _add_question(db, lesson, q_order, text, opts, correct)
+            created = True
+    return created
+
+
 def seed(db: Session) -> bool:
-    """Ensure grades 1..11 + achievements; create sample 1-sinf content once.
+    """Ensure grades 1..11 + achievements; create sample content once.
 
     Returns True only when new sample content was inserted this run.
     """
@@ -114,11 +385,23 @@ def seed(db: Session) -> bool:
     grades = _ensure_grades(db)
     db.flush()
 
-    # Sample content lives ONLY in 1-sinf; skip if its subjects already exist.
-    if db.scalar(select(Subject).where(Subject.slug == "matematika")) is not None:
-        db.commit()
-        return False
+    inserted = False
 
+    # ---- 1-sinf sample content (original demo) ----
+    if db.scalar(select(Subject).where(Subject.slug == "matematika")) is None:
+        _seed_grade1(db, grades)
+        inserted = True
+
+    # ---- 2..4-sinf sample content ----
+    if _ensure_grade_content(db, grades):
+        inserted = True
+
+    db.commit()
+    return inserted
+
+
+def _seed_grade1(db: Session, grades: dict[str, Grade]) -> None:
+    """The original 1-sinf demonstration content (kept as-is)."""
     grade = grades["1-sinf"]
 
     math = Subject(grade_id=grade.id, name="Matematika", slug="matematika", emoji="📐", order_index=1)
@@ -206,9 +489,6 @@ def seed(db: Session) -> bool:
     db.flush()
     for order, (text, opts, correct) in enumerate(UZBEK_QUESTIONS, start=1):
         _add_question(db, uz, order, text, opts, correct)
-
-    db.commit()
-    return True
 
 
 def main() -> None:

@@ -11,6 +11,7 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
+import backend_client
 import config
 from keyboards.inline import main_menu_keyboard
 
@@ -28,6 +29,35 @@ GREETING = (
 )
 
 
+async def personalized_intro(message: Message) -> str:
+    """Greeting enriched with the pupil's real stats from the backend.
+
+    Honest by design: if the backend is unreachable or the pupil is new,
+    we show the plain welcome — we never invent a grade or star count.
+    """
+    text = GREETING
+    summary = await backend_client.pupil_summary(message.from_user.id)
+    if not summary or not summary.get("known_user"):
+        return text
+
+    first_name = summary.get("first_name") or message.from_user.first_name or "Qahramon"
+    lines = [f"👋 <b>Salom, {first_name}!</b>", ""]
+    if summary.get("needs_onboarding"):
+        lines.append("📚 Siz hali sinfinizni tanlamadingiz — Mini App'ni ochib tanlang!")
+    else:
+        stars = summary.get("stars_total", 0)
+        passed = summary.get("lessons_passed", 0)
+        lines.append(
+            f"Sizning sinfiniz: <b>{summary.get('grade_name')}</b>\n"
+            f"⭐ Yulduzchalar: <b>{stars}</b> · ✅ Tugatilgan darslar: <b>{passed}</b>"
+        )
+        if stars == 0:
+            lines.append("\nBirinchi yulduzchangizni yutish uchun kiring! 🚀")
+        else:
+            lines.append("\nShunday davom eting — Quest siz bilan faxrlanadi! 🤖")
+    return "\n".join(lines) + "\n\n" + GREETING.split("\n\n", 1)[1]
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     """/start — greeting + the button that launches the Mini App."""
@@ -40,7 +70,8 @@ async def cmd_start(message: Message) -> None:
         )
         return
 
-    await message.answer(GREETING, reply_markup=main_menu_keyboard(config.MINI_APP_URL))
+    intro = await personalized_intro(message)
+    await message.answer(intro, reply_markup=main_menu_keyboard(config.MINI_APP_URL))
 
 
 @router.message(Command("app"))

@@ -17,6 +17,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_eduquest.db"
 os.environ["BOT_TOKEN"] = "0123456789:TEST_FAKE_TOKEN_NOT_REAL"
 os.environ["JWT_SECRET"] = "test-secret-not-a-real-one-0123456789abcdef"  # >=32 bayt
 os.environ["CORS_ORIGINS"] = "*"
+os.environ["ADMIN_TELEGRAM_IDS"] = "999000111"  # the admin used by admin tests
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

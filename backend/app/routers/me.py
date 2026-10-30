@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import gamification
+from app.config import get_settings
 from app.db import get_db
 from app.grades import user_grade
 from app.models import Achievement, Grade, Lesson, LessonProgress, Subject, User, UserAchievement
@@ -26,6 +27,7 @@ def _profile(user: User, grade: Grade | None) -> ProfileResponse:
         grade_id=grade.id if grade else None,
         grade_name=grade.name if grade else None,
         needs_grade_selection=grade is None,
+        is_admin=user.telegram_id in get_settings().admin_id_set,
     )
 
 

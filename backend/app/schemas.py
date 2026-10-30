@@ -38,6 +38,65 @@ class ProfileResponse(BaseModel):
     grade_name: str | None
     # True when the pupil has not chosen a grade yet → app must run onboarding.
     needs_grade_selection: bool
+    # True when this Telegram id is in ADMIN_TELEGRAM_IDS (Mini App shows admin tab).
+    is_admin: bool = False
+
+
+# ---------- admin ----------
+class AdminSubjectCreate(BaseModel):
+    grade_id: int = Field(ge=1)
+    name: str = Field(min_length=2, max_length=64)
+    emoji: str = Field(default="📘", max_length=8)
+    order_index: int = 0
+
+
+class AdminSubjectOut(BaseModel):
+    id: int
+    name: str
+    slug: str
+    emoji: str
+    grade_id: int
+    lesson_count: int
+
+
+class GradeOverview(BaseModel):
+    grade_id: int
+    grade_name: str
+    subjects: list[AdminSubjectOut]
+
+
+class AdminLessonCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=160)
+    explanation: str = Field(min_length=10)
+    stars_reward: int = Field(default=5, ge=1, le=50)
+    pass_threshold_percent: int = Field(default=60, ge=10, le=100)
+
+
+class AdminLessonOut(BaseModel):
+    id: int
+    title: str
+    level_order: int
+    subject_name: str
+    question_count: int
+
+
+class AdminOptionCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=255)
+    is_correct: bool = False
+
+
+class AdminQuestionCreate(BaseModel):
+    text: str = Field(min_length=3, max_length=1000)
+    kind: str = Field(default="single", pattern="^(single|text)$")
+    options: list[AdminOptionCreate] = Field(min_length=1, max_length=6)
+
+
+class AdminQuestionOut(BaseModel):
+    id: int
+    text: str
+    kind: str
+    option_count: int
+    correct_count: int
 
 
 # ---------- content ----------
@@ -125,6 +184,17 @@ class QuizSubmitResult(BaseModel):
     message_uz: str
     new_achievements: list[str]
     duplicate: bool  # True if this idempotency_key was already processed
+
+
+# ---------- bot internal (X-Bot-Token protected) ----------
+class BotSummaryResponse(BaseModel):
+    known_user: bool = False
+    needs_onboarding: bool = True
+    first_name: str | None = None
+    grade_name: str | None = None
+    stars_total: int = 0
+    lessons_viewed: int = 0
+    lessons_passed: int = 0
 
 
 # ---------- progress / profile ----------
