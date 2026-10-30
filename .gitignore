@@ -29,3 +29,6 @@ Thumbs.db
 
 # Neon CLI pulled env
 .env.local
+
+# Neon CLI local config (not needed in repo)
+neon.ts
