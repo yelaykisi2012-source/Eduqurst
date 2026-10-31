@@ -44,6 +44,16 @@ def test_login_accepts_names_with_spaces(client: TestClient):
     assert resp.json()["first_name"] == "Ali Karim"
 
 
+def test_login_ignores_ed25519_signature_field(client: TestClient):
+    # Telegram 2024+ adds an Ed25519 `signature` field to initData. The HMAC
+    # check-string must EXCLUDE it; folding it in breaks every real login
+    # (forged test data without the field would still pass — false green).
+    data = make_init_data({"id": 555004, "first_name": "Imzoli"})
+    assert "signature=" in data
+    resp = client.post("/api/auth/telegram", json={"init_data": data})
+    assert resp.status_code == 200, resp.text
+
+
 def test_login_rejects_missing_stale_or_future_auth_date(client: TestClient):
     user = {"id": 555010, "first_name": "Vaqt"}
     # missing auth_date (auth_date=0 means "omit the field")

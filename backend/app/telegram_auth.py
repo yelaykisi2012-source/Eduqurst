@@ -5,8 +5,13 @@ Security rule: the frontend can send ANYTHING it wants. We only trust data
 whose `hash` was produced by Telegram itself, i.e. HMAC with a key derived
 from OUR bot token. Algorithm (official docs):
   secret_key = HMAC_SHA256(key="WebAppData", data=BOT_TOKEN)
-  data_check_string = sorted urlencoded fields except "hash"
+  data_check_string = sorted urlencoded fields except "hash" AND "signature"
   hash = HMAC_SHA256(key=secret_key, data=data_check_string)
+
+NOTE: since 2024 Telegram also sends an Ed25519 `signature` field alongside
+`hash`. The official data-check-string explicitly EXCLUDES both `hash` and
+`signature`; folding `signature` into the HMAC makes every REAL login fail
+(forged test data usually lacks the field — don't trust that).
 """
 from __future__ import annotations
 
@@ -38,6 +43,8 @@ def verify_init_data(init_data: str, bot_token: str, max_age_seconds: int = 86_4
     received_hash = fields.pop("hash", None)
     if not received_hash:
         raise TelegramAuthError("initData'da hash yo'q")
+    # Telegram's Ed25519 signature is NEVER part of the HMAC check-string.
+    fields.pop("signature", None)
 
     # A decoded copy is only used to READ auth_date and user; the signature
     # itself is checked against the raw values above.

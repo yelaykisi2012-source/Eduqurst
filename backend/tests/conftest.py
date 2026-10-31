@@ -31,26 +31,33 @@ TEST_BOT_TOKEN = os.environ["BOT_TOKEN"]
 
 
 def make_init_data(
-    user: dict, *, tamper: bool = False, auth_date: int | None = None
+    user: dict, *, tamper: bool = False, auth_date: int | None = None,
+    signature: bool = True,
 ) -> str:
     """Forge valid initData EXACTLY the way Telegram does.
 
     Telegram percent-encodes each value (a space stays %20) and signs the
-    RAW, still-encoded `key=value` pairs (excluding `hash`), sorted by key,
-    joined with newlines. If this helper signed a re-encoded string instead,
-    it would pass against a buggy backend and miss the real bug.
+    RAW, still-encoded `key=value` pairs sorted by key, joined with newlines.
+    Since 2024 Telegram also sends an Ed25519 `signature` field; the `hash`
+    check-string EXCLUDES both `hash` and `signature` — folding `signature`
+    into the HMAC breaks every real login.
     `auth_date=0` omits the field entirely.
     """
     params: dict[str, str] = {
         "query_id": "testquery",
         "user": json.dumps(user, separators=(",", ":")),
     }
+    if signature:
+        # Real Telegram (2024+) always sends this; the HMAC must ignore it.
+        params["signature"] = "ZmFrZS1lZDI1NTE5LXNpZ25hdHVyZQ"
     if auth_date is None:
         params["auth_date"] = str(int(time.time()))
     elif auth_date > 0:
         params["auth_date"] = str(auth_date)
     check_string = "\n".join(
-        f"{k}={quote(v, safe='')}" for k, v in sorted(params.items())
+        f"{k}={quote(v, safe='')}"
+        for k, v in sorted(params.items())
+        if k not in {"hash", "signature"}
     )
     secret = hmac.new(b"WebAppData", TEST_BOT_TOKEN.encode(), hashlib.sha256).digest()
     digest = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
