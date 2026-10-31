@@ -131,7 +131,104 @@ Va renderda:
 `bootstrap()` allaqachon `needs_grade_selection` bo'lsa `GradePicker`ni
 ochadi — bu qismni o'zgartirmang. Logout mavjud holatda tokenni tozalaydi.
 
-### 6) Qabul mezonlari
+### 6) Dizayn va animatsiya — «wow» daraja (majburiy)
+
+Hozirgi implementatsiya funksional, lekin vizual jihatdan oddiy (statik karta +
+`animate-fade-in`). Foydalanuvchi talabi: **kirish bo'limi silliq, boy
+animatsiya bilan ochilsin va sayt premium ko'rinsin** — bu o'quvchilarga
+loyiha darajasini ko'rsatadi. Quyidagilar majburiy.
+
+**6.1 Kompozitsiya (desktop >= 1024px)**
+
+- Ikki ustunli sahna: chapda brend paneli, o'ngda shisha (glassmorphism)
+  kirish kartasi. Karta kengligi maksimum 440px.
+- Chap panel: katta «EduQuest» logotipi, «O'rganish — endi o'yin!» shiori,
+  1–11 sinf badge'i, suzuvchi fan chiplari (📚 Matematika, ➗ Hisob, 🔤 Ona
+  tili) va qisqa ishonch qatori (masalan, «16 yulduz · 11 sinf · bitta
+  progress»). Bu panel faqat bezak, hech qanday soxta statistika yozilmasin —
+  faqat mahsulot faktlari.
+- Mobil va planshetda (< 1024px) bitta ustun: ixcham animatsion sarlavha +
+  to'liq kenglikdagi karta. Ortiqcha panel yashiriladi.
+
+**6.2 Ochilish choreography (timeline)**
+
+- Fon blob'lari 0–400ms ichida yumshoq paydo bo'ladi.
+- Karta: `opacity 0→1`, `translateY(28px)→0`, `scale(.985)→1`, 620ms,
+  `cubic-bezier(0.16, 1, 0.3, 1)`.
+- Logo/ikonka: `scale(.6) rotate(-8deg) blur(6px)` holatdan normal holatga,
+  520ms, 80ms kechikish.
+- Sarlavha va tavsif 60ms stagger bilan pastdan ko'tariladi.
+- Telegram widget, ajratgich chizig'i (`scaleX(0)→1`, 400ms) va «Menda
+  Telegram yo'q» havolasi ketma-ket, 120ms farq bilan chiqadi.
+- Hech qanday element sakrab joy almashmasin; barcha animatsiya
+  `transform`/`opacity`/`filter` bilan.
+
+**6.3 Panel va tab animatsiyasi**
+
+- «Menda Telegram yo'q» bosilganda panel `grid-template-rows: 0fr → 1fr`
+  (yoki o'lchangan max-height) bilan 340ms ochilsin; ichki qism
+  `overflow: hidden`; chevron 180ms aylanadi. Yopilish ham silliq.
+- Tab tugmalari ostida siljiydigan oq pill (indicator) — `translateX`,
+  260ms; faol tab rangi/yog'du animatsiyali.
+- Tab almashganda forma 6px siljish + fade (220ms), maydonlar 45ms stagger
+  bilan chiqadi; balandlik sakrashi bo'lmasin.
+- `role="tablist"`, `aria-selected`, klaviatura bilan tab almashish ishlaydi.
+
+**6.4 Maydonlar va mikro-interaksiyalar**
+
+- Har bir input chapida ikonka (IconUser/IconLock), label yuqorida.
+- Focus: chegara `#3478F6`, 4px `rgba(52,120,246,.14)` ring, 180ms silliq;
+  `caret-color: #3478F6`.
+- Parol maydonida ko'z tugmasi (ko'rsatish/yashirish) — ikonka morph,
+  `aria-label` bilan; Caps Lock yoqilganda kichik ogohlantirish (ixtiyoriy).
+- Ro'yxatdan o'tishda parol kuchi indikatori: 3 segment, rang/kenglik
+  animatsiyasi; minimal talab 6 belgi.
+- Asosiy tugma: gradient `#3478F6 → #2563EB`, hover `translateY(-1px)` +
+  soya, active `scale(.985)`, hover'da yengil sheen (600ms) sweep.
+  Yuklanishda spinner + «Kirilmoqda...»; muvaffaqiyatda qisqa check-pop
+  (320ms) va keyin App'ga o'tish.
+- Xato: banner `translateY(-6px)+fade` (200ms), maydon chegarasi rose rang,
+  yengil shake (3×4px, 220ms). `aria-live="polite"`.
+
+**6.5 Fon va atmosfera**
+
+- `#F7F9FC` asosida yumshoq gradient mesh: ko'k (`#3478F6`), binafsha
+  (`#8B5CF6`), amber (`#FFD54F`) blob'lar, `blur(70px)`, 18–24s sekin
+  suzish. Nozik grid/naqsh ustiga mask bilan — faqat bezak.
+- Desktopda pointer harakatiga yengil parallax (maksimum 6px); touch
+  qurilmalarda o'chirilgan. Karta 3D tilt (maksimum 4°) faqat desktopda.
+- O'qish qulayligi birinchi o'rinda: matn kontrasti AA darajadan past
+  bo'lmasin, fon kartani bosib ketmasin.
+
+**6.6 Telegram widget**
+
+- Widget iframe'ini stillash mumkin emas — uni oq pill konteyner ichiga
+  (border, padding, soya) joylashtiring, shunda dizaynga singib ketadi.
+- Widget uchun aniq balandlik zaxirasi qoldiring — yuklanishda layout
+  sakramasin. `data-onauth` va tozalash mantiqi o'zgartirilmaydi.
+
+**6.7 Performance va accessibility**
+
+- Yangi npm paket qo'shilmang (framer-motion va h.k. yo'q) — CSS
+  keyframes/transition yetarli. `index.css` ga yangi keyframe'larni
+  qo'shing (`fadeIn`/`scaleIn`/`pulseGlow` mavjud).
+- Faqat `transform`/`opacity`/`filter`; `will-change` faqat animatsiya
+  paytida; 60fps; layout shift yo'q.
+- `@media (prefers-reduced-motion: reduce)`: barcha dekorativ animatsiya
+  o'chadi, oddiy 120ms fade qoladi; tilt/parallax o'chadi.
+- `:focus-visible` halqalari, label-input bog'lanishi, xatolar uchun
+  `aria-live`.
+
+**6.8 «Wow» nazorat ro'yxati**
+
+- [ ] Ochilishda ketma-ket, silliq choreography — sakrash/jank yo'q.
+- [ ] Panel, tab va maydon animatsiyalari 60fps.
+- [ ] Hover/focus/active/loading/success holatlari jonli va izchil.
+- [ ] Mobil 360px va desktop 1440px da tekshirilgan.
+- [ ] `prefers-reduced-motion` fallback ishlaydi.
+- [ ] Natija skrinshotga olib ko'rsa bo'ladigan premium darajada.
+
+### 7) Qabul mezonlari
 
 1. `npm run build` xatosiz o'tadi (`tsc --noEmit` ham).
 2. Brauzerda (Telegram tashqarisida) yangi hisob yaratish → sinf tanlash →
@@ -141,8 +238,10 @@ ochadi — bu qismni o'zgartirmang. Logout mavjud holatda tokenni tozalaydi.
 5. Band login → «Bu login allaqachon band. Boshqa login tanlang.»
 6. Telegram widget avvalgidek ishlaydi (regressiya yo'q).
 7. Dizayn mavjud uslubda, mobil va desktopda toza ko'rinadi.
+8. 6-bo'limdagi animatsiya va «wow» ro'yxati to'liq bajarilgan; kirish
+   sahnasi ochilganda silliq, hech qanday layout sakrashi yo'q.
 
-### 7) Tegmaslik kerak bo'lgan narsalar
+### 8) Tegmaslik kerak bo'lgan narsalar
 
 - `api.login` / `api.webLogin` va Telegram initData oqimi.
 - Backend endpointlari, JWT saqlash mexanizmi, `GradePicker` mantiqi.
