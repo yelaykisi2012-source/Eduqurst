@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import gamification
+from app import gamification, streaks
 from app.config import get_settings
 from app.db import get_db
 from app.grades import user_grade
@@ -28,6 +28,8 @@ def _profile(user: User, grade: Grade | None) -> ProfileResponse:
         grade_name=grade.name if grade else None,
         needs_grade_selection=grade is None,
         is_admin=user.telegram_id in get_settings().admin_id_set,
+        current_streak=user.current_streak or 0,
+        max_streak=user.max_streak or 0,
     )
 
 
@@ -45,6 +47,8 @@ def my_profile(
     db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> ProfileResponse:
     """Saved profile. If needs_grade_selection is true the app shows onboarding."""
+    if streaks.touch(db, user):
+        db.commit()
     return _profile(user, user_grade(db, user))
 
 

@@ -263,6 +263,7 @@ export default function App() {
   const name = profile?.first_name || progress?.first_name || "O‘quvchi";
   const gradeLabel = profile?.grade_name ?? progress?.grade_name;
   const starsTotal = progress?.stars_total ?? 0;
+  const currentStreak = profile?.current_streak ?? 0;
 
   const activeSubject =
     view.kind !== "home" && "subjectId" in view
@@ -326,6 +327,7 @@ export default function App() {
           currentTab={currentTab}
           onTabChange={handleTabChange}
           stars={starsTotal}
+          streak={currentStreak}
           gradeLabel={gradeLabel}
           onChangeGrade={changeGrade}
           isAdmin={profile?.is_admin}
@@ -402,6 +404,15 @@ export default function App() {
                       <IconGraduationCap size={12} />
                       <span>{gradeLabel}</span>
                     </button>
+                  )}
+                  {currentStreak > 0 && (
+                    <div
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-orange-50 text-orange-700 border border-orange-200/80 text-[11px] font-black shadow-2xs"
+                      title={`Kunlik seriya: ${currentStreak} kun`}
+                    >
+                      <span aria-hidden="true">🔥</span>
+                      <span>{currentStreak}</span>
+                    </div>
                   )}
                   <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200/80 text-[11px] font-black shadow-2xs">
                     <IconStar size={12} filled className="text-amber-500" />

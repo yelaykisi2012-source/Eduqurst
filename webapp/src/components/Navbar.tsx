@@ -14,6 +14,7 @@ interface NavbarProps {
   currentTab: NavTab;
   onTabChange: (tab: NavTab) => void;
   stars: number;
+  streak?: number;
   gradeLabel?: string | null;
   onChangeGrade?: () => void;
   isAdmin?: boolean;
@@ -23,6 +24,7 @@ export default function Navbar({
   currentTab,
   onTabChange,
   stars,
+  streak = 0,
   gradeLabel,
   onChangeGrade,
   isAdmin = false,
@@ -96,6 +98,16 @@ export default function Navbar({
                 <IconGraduationCap size={15} />
                 <span>{gradeLabel}</span>
               </button>
+            )}
+
+            {streak > 0 && (
+              <div
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-orange-50 text-orange-700 border border-orange-200/70 font-extrabold text-xs sm:text-sm shadow-xs"
+                title={`Kunlik seriya: ${streak} kun`}
+              >
+                <span aria-hidden="true">🔥</span>
+                <span>{streak}</span>
+              </div>
             )}
 
             <div className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200/60 font-extrabold text-xs sm:text-sm shadow-xs">

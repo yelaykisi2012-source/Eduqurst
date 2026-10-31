@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
+from app import streaks
 from app.gamification import get_progress, is_lesson_unlocked
 from app.grades import assert_lesson_in_grade, require_grade
 from app.models import Lesson, LessonMaterial, LessonProgress, Subject, User
@@ -147,6 +148,7 @@ def mark_lesson_viewed(
     lesson = _accessible_lesson(db, user, lesson_id)
     if not is_lesson_unlocked(db, user.id, lesson):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Bosqich ochilmagan")
+    streaks.touch(db, user)
     prog = get_progress(db, user.id, lesson.id)
     granted = False
     new_ach = []

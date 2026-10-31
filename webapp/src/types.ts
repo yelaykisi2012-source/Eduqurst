@@ -15,6 +15,9 @@ export interface Profile {
   grade_name: string | null;
   needs_grade_selection: boolean;
   is_admin: boolean;
+  /** Consecutive local (Asia/Tashkent) days with activity — shown as 🔥. */
+  current_streak: number;
+  max_streak: number;
 }
 
 /** Admin dashboard data: one grade with its subjects. */

@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import gamification
+from app import gamification, streaks
 from app.config import get_settings
 from app.db import get_db
 from app.grades import user_grade
@@ -74,6 +74,8 @@ def pupil_summary(
     """Stats for /start personalisation. Unknown pupil => needs_onboarding=true
     (the bot then simply shows the plain welcome text — never invents data)."""
     user = db.scalar(select(User).where(User.telegram_id == telegram_id))
+    if user is not None and streaks.touch(db, user):
+        db.commit()
     return _summary(db, user)
 
 
@@ -99,6 +101,8 @@ def _summary(db: Session, user: User | None) -> BotSummaryResponse:
         stars_total=gamification.stars_total(db, user.id),
         lessons_viewed=viewed,
         lessons_passed=passed,
+        current_streak=user.current_streak or 0,
+        max_streak=user.max_streak or 0,
     )
 
 
@@ -138,6 +142,7 @@ def upsert_pupil(body: BotPupilUpsert, db: Session = Depends(get_db)) -> BotSumm
         if body.first_name:
             user.first_name = body.first_name[:128]
         user.username = body.username or user.username
+    streaks.touch(db, user)
     db.commit()
     return _summary(db, user)
 

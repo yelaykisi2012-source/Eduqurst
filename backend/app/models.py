@@ -12,11 +12,12 @@ Relationship map:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -65,6 +66,11 @@ class User(Base):
         ForeignKey("grades.id"), index=True, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Daily engagement streak. "Day" is Asia/Tashkent (UTC+5), so it flips at
+    # local midnight; last_active_date stores that local date.
+    current_streak: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    max_streak: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_active_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     grade: Mapped[Grade | None] = relationship()
     attempts: Mapped[list[QuizAttempt]] = relationship(back_populates="user")

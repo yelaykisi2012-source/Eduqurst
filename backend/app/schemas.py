@@ -53,6 +53,9 @@ class ProfileResponse(BaseModel):
     needs_grade_selection: bool
     # True when this Telegram id is in ADMIN_TELEGRAM_IDS (Mini App shows admin tab).
     is_admin: bool = False
+    # Consecutive local (Asia/Tashkent) days with activity — shown as 🔥.
+    current_streak: int = 0
+    max_streak: int = 0
 
 
 # ---------- admin ----------
@@ -275,6 +278,8 @@ class BotSummaryResponse(BaseModel):
     stars_total: int = 0
     lessons_viewed: int = 0
     lessons_passed: int = 0
+    current_streak: int = 0
+    max_streak: int = 0
 
 
 class BotPupilUpsert(BaseModel):

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import gamification
+from app import gamification, streaks
 from app.db import get_db
 from app.grades import assert_lesson_in_grade
 from app.models import Achievement, AnswerOption, Lesson, Question, QuizAttempt, User
@@ -41,12 +41,15 @@ def submit_quiz(
     assert_lesson_in_grade(db, user, lesson)
     if not gamification.is_lesson_unlocked(db, user.id, lesson):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Bosqich ochilmagan")
+    streak_changed = streaks.touch(db, user)
 
     # --- duplicate protection: same idempotency key => original result ---
     existing = db.scalar(
         select(QuizAttempt).where(QuizAttempt.idempotency_key == body.idempotency_key)
     )
     if existing is not None:
+        if streak_changed:
+            db.commit()
         return _result(db, user, existing, lesson, duplicate=True, new_achievements=[])
 
     qmap = {

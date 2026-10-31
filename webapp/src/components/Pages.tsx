@@ -161,6 +161,12 @@ export function ProfilePage({
               <p className="text-[11px] font-semibold text-slate-400 mt-0.5">
                 Ta'lim oluvchi profili
               </p>
+              {(profile?.current_streak ?? 0) > 0 && (
+                <p className="text-[10px] font-bold text-orange-600 mt-0.5">
+                  🔥 {profile?.current_streak} kunlik seriya · rekord{" "}
+                  {profile?.max_streak ?? profile?.current_streak} kun
+                </p>
+              )}
             </div>
           </div>
 
