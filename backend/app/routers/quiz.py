@@ -15,8 +15,16 @@ from sqlalchemy.orm import Session
 from app import gamification, streaks
 from app.db import get_db
 from app.grades import assert_lesson_in_grade
-from app.models import Achievement, AnswerOption, Lesson, Question, QuizAttempt, User
-from app.schemas import QuizSubmitRequest, QuizSubmitResult
+from app.models import (
+    Achievement,
+    AnswerOption,
+    Lesson,
+    Question,
+    QuizAnswer,
+    QuizAttempt,
+    User,
+)
+from app.schemas import MistakeOut, QuizSubmitRequest, QuizSubmitResult
 from app.security import get_current_user
 
 router = APIRouter(prefix="/api", tags=["quiz"])
@@ -58,19 +66,36 @@ def submit_quiz(
             select(Question).where(Question.lesson_id == lesson.id)
         ).all()
     }
+    # One answer per question id (a repeated id keeps the last answer).
+    answers_by_question = {
+        ans.question_id: ans for ans in body.answers if ans.question_id in qmap
+    }
     correct = 0
-    for ans in body.answers:
-        question = qmap.get(ans.question_id)
-        if question is None:
-            continue  # ignore foreign question ids (validation, not error)
+    answer_rows: list[QuizAnswer] = []
+    for qid, question in qmap.items():
+        ans = answers_by_question.get(qid)
+        is_correct = False
+        option_id: int | None = None
+        text_answer: str | None = None
         if question.kind == "text":
             expected = next((o.text for o in question.options if o.is_correct), "")
-            if (ans.text or "").strip().lower() == expected.strip().lower():
-                correct += 1
+            text_answer = (ans.text or "").strip() if ans else ""
+            is_correct = bool(expected) and text_answer.lower() == expected.strip().lower()
         else:
-            option = db.get(AnswerOption, ans.option_id) if ans.option_id else None
-            if option is not None and option.question_id == question.id and option.is_correct:
-                correct += 1
+            option = db.get(AnswerOption, ans.option_id) if ans and ans.option_id else None
+            if option is not None and option.question_id == question.id:
+                option_id = option.id
+                is_correct = bool(option.is_correct)
+        if is_correct:
+            correct += 1
+        answer_rows.append(
+            QuizAnswer(
+                question_id=qid,
+                option_id=option_id,
+                text_answer=text_answer[:255] if text_answer else None,
+                is_correct=is_correct,
+            )
+        )
 
     total = len(qmap)
     score = round(correct * 100 / total) if total else 0
@@ -87,6 +112,9 @@ def submit_quiz(
     )
     db.add(attempt)
     db.flush()
+    for row in answer_rows:
+        row.attempt_id = attempt.id
+        db.add(row)
 
     prog = gamification.get_progress(db, user.id, lesson.id)
     prog.best_score_percent = max(prog.best_score_percent, score)
@@ -143,4 +171,68 @@ def _result(
         new_achievements=[a.code for a in new_achievements],
         new_achievement_titles=[a.title for a in new_achievements],
         duplicate=duplicate,
+        mistakes=_mistakes(db, attempt),
     )
+
+
+def _mistakes(db: Session, attempt: QuizAttempt) -> list[MistakeOut]:
+    """Wrong answers of this attempt, with the correct option + feedback.
+
+    Empty for attempts recorded before answers were persisted — nothing is
+    invented. Correct answers are only exposed here, after submission.
+    """
+    rows = db.scalars(
+        select(QuizAnswer).where(QuizAnswer.attempt_id == attempt.id)
+    ).all()
+    if not rows:
+        return []
+
+    questions = {
+        q.id: q
+        for q in db.scalars(
+            select(Question).where(
+                Question.id.in_([row.question_id for row in rows])
+            )
+        ).all()
+    }
+    chosen: dict[int, AnswerOption] = {}
+    option_ids = [row.option_id for row in rows if row.option_id]
+    if option_ids:
+        chosen = {
+            o.id: o
+            for o in db.scalars(
+                select(AnswerOption).where(AnswerOption.id.in_(option_ids))
+            ).all()
+        }
+
+    items: list[tuple[int, MistakeOut]] = []
+    for row in rows:
+        if row.is_correct:
+            continue
+        question = questions.get(row.question_id)
+        if question is None:
+            continue
+        correct_options = [o.text for o in question.options if o.is_correct]
+        explanation = next(
+            (o.feedback for o in question.options if o.is_correct and o.feedback), ""
+        )
+        your_answer = ""
+        if row.option_id and row.option_id in chosen:
+            your_answer = chosen[row.option_id].text
+        elif row.text_answer:
+            your_answer = row.text_answer
+        items.append(
+            (
+                question.order_index,
+                MistakeOut(
+                    question_id=question.id,
+                    question_text=question.text,
+                    kind=question.kind,
+                    your_answer=your_answer,
+                    correct_answer=" / ".join(correct_options),
+                    explanation=explanation,
+                ),
+            )
+        )
+    items.sort(key=lambda pair: pair[0])
+    return [mistake for _, mistake in items]

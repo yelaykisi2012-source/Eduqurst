@@ -365,6 +365,22 @@ async def _finish_quiz(
         lines.append("🚀 Keyingi bosqich ochildi!")
     for title in achievement_titles(result):
         lines.append(f"🏆 Yangi yutuq: <b>{esc(title)}</b>!")
+    mistakes = result.get("mistakes") or []
+    if mistakes:
+        lines.append("")
+        lines.append("💡 <b>Xatolar ustida ishlash</b>")
+        for idx, m in enumerate(mistakes[:5], start=1):
+            lines.append(
+                f"{idx}. {esc(m['question_text'])}\n"
+                f"   ❌ Sizning javob: <i>{esc(m['your_answer'] or 'javob berilmagan')}</i>\n"
+                f"   ✅ To‘g‘ri javob: <b>{esc(m['correct_answer'])}</b>"
+            )
+            if m.get("explanation"):
+                lines.append(f"   💬 {esc(m['explanation'])}")
+        if len(mistakes) > 5:
+            lines.append(
+                f"… yana {len(mistakes) - 5} ta xato — to‘liq ro‘yxat Mini App’da."
+            )
     await target.answer(
         "\n".join(lines),
         reply_markup=quiz_result_keyboard(result["passed"], lesson_id),

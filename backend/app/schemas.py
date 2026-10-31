@@ -286,6 +286,17 @@ class QuizSubmitRequest(BaseModel):
     answers: list[AnswerIn]
 
 
+class MistakeOut(BaseModel):
+    """A wrong answer, revealed ONLY after the quiz was submitted."""
+
+    question_id: int
+    question_text: str
+    kind: str
+    your_answer: str
+    correct_answer: str
+    explanation: str = ""
+
+
 class QuizSubmitResult(BaseModel):
     attempt_id: int
     total_count: int
@@ -299,6 +310,8 @@ class QuizSubmitResult(BaseModel):
     new_achievements: list[str]
     new_achievement_titles: list[str] = []
     duplicate: bool  # True if this idempotency_key was already processed
+    # Wrong answers with the correct option + supportive hint ("Xatolarni ko'rish").
+    mistakes: list[MistakeOut] = []
 
 
 # ---------- bot internal (X-Bot-Token protected) ----------

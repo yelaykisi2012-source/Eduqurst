@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { QuizResult } from "../types";
 import Card from "./ui/Card";
 import Button from "./ui/Button";
@@ -8,6 +8,8 @@ import {
   IconRefresh,
   IconArrowRight,
   IconSparkles,
+  IconHelpCircle,
+  IconChevronDown,
 } from "./ui/Icons";
 
 interface ResultScreenProps {
@@ -22,6 +24,8 @@ export default function ResultScreen({
   onContinue,
 }: ResultScreenProps) {
   const isPassed = result.passed;
+  const mistakes = result.mistakes ?? [];
+  const [showMistakes, setShowMistakes] = useState(false);
 
   useEffect(() => {
     if (isPassed) {
@@ -86,6 +90,57 @@ export default function ResultScreen({
           </div>
         )}
       </Card>
+
+      {/* Review mistakes */}
+      {mistakes.length > 0 && (
+        <Card variant="default" className="mt-4 p-3.5 sm:p-5">
+          <button
+            type="button"
+            onClick={() => setShowMistakes((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 cursor-pointer"
+            aria-expanded={showMistakes}
+          >
+            <span className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-slate-800">
+              <IconHelpCircle size={16} className="text-rose-500" />
+              Xatolarni ko‘rish ({mistakes.length})
+            </span>
+            <IconChevronDown
+              size={16}
+              className={`text-slate-400 transition-transform ${
+                showMistakes ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+
+          {showMistakes && (
+            <ul className="mt-3 space-y-2.5">
+              {mistakes.map((m, idx) => (
+                <li
+                  key={m.question_id}
+                  className="rounded-xl bg-slate-50/80 border border-slate-200/70 p-2.5 sm:p-3"
+                >
+                  <p className="text-[11px] sm:text-xs font-bold text-slate-800 leading-snug">
+                    {idx + 1}. {m.question_text}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] sm:text-[11px] font-bold">
+                    <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200/70">
+                      Sizning javobingiz: {m.your_answer || "javob berilmagan"}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/70">
+                      To‘g‘ri javob: {m.correct_answer || "—"}
+                    </span>
+                  </div>
+                  {m.explanation && (
+                    <p className="mt-1.5 text-[10px] sm:text-[11px] text-slate-500 leading-snug">
+                      {m.explanation}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
 
       {/* Action Buttons */}
       <div className="mt-4 space-y-2">

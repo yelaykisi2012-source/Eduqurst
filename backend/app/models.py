@@ -200,6 +200,25 @@ class QuizAttempt(Base):
     user: Mapped[User] = relationship(back_populates="attempts")
 
 
+class QuizAnswer(Base):
+    """One answer of a submitted quiz — powers the "review mistakes" screen.
+
+    Stored per attempt so the same review can be shown again later (duplicate
+    submit, history) instead of only in the submission response.
+    """
+
+    __tablename__ = "quiz_answers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attempt_id: Mapped[int] = mapped_column(
+        ForeignKey("quiz_attempts.id"), index=True
+    )
+    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id"), index=True)
+    option_id: Mapped[int | None] = mapped_column(ForeignKey("answer_options.id"))
+    text_answer: Mapped[str | None] = mapped_column(String(255))
+    is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class LessonProgress(Base):
     """Per-user state of a lesson: viewed? passed? best score?"""
 

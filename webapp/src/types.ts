@@ -161,6 +161,15 @@ export interface QuizOption {
 }
 
 /** Result of POST /api/lessons/{id}/quiz/submit (graded on the server). */
+export interface Mistake {
+  question_id: number;
+  question_text: string;
+  kind: string;
+  your_answer: string;
+  correct_answer: string;
+  explanation: string;
+}
+
 export interface QuizResult {
   attempt_id: number;
   total_count: number;
@@ -174,6 +183,7 @@ export interface QuizResult {
   new_achievements: string[];
   new_achievement_titles: string[];
   duplicate: boolean;
+  mistakes: Mistake[];
 }
 
 export interface SubjectProgress {

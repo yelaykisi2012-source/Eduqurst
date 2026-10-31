@@ -494,5 +494,42 @@ class CallbackPupilIdTests(unittest.TestCase):
         self.assertTrue(cb.message.answers)
 
 
+class QuizMistakeReviewTests(unittest.TestCase):
+    """The bot result message must help the pupil learn from wrong answers."""
+
+    def test_mistakes_are_rendered_and_escaped(self):
+        result = {
+            "message_uz": "Yana bir bor urinib ko‘ramiz!",
+            "correct_count": 0,
+            "total_count": 1,
+            "score_percent": 0,
+            "passed": False,
+            "stars_earned": 0,
+            "stars_total": 4,
+            "next_level_unlocked": False,
+            "new_achievements": [],
+            "new_achievement_titles": [],
+            "mistakes": [{
+                "question_id": 5,
+                "question_text": "2 < 3mi?",
+                "kind": "single",
+                "your_answer": "Yo‘q",
+                "correct_answer": "Ha",
+                "explanation": "Kichik son chapda turadi.",
+            }],
+        }
+        target = AsyncMock()
+        state = AsyncMock()
+        with patch.object(
+            backend_client, "submit_quiz", new=AsyncMock(return_value=result)
+        ):
+            asyncio.run(learn_handlers._finish_quiz(target, state, 7, {}, 123))
+        text = target.answer.await_args.args[0]
+        self.assertIn("Xatolar ustida ishlash", text)
+        self.assertIn("2 &lt; 3mi?", text)  # HTML-escaped, not raw
+        self.assertIn("To‘g‘ri javob", text)
+        self.assertIn("Kichik son chapda turadi.", text)
+
+
 if __name__ == "__main__":
     unittest.main()
