@@ -96,6 +96,18 @@ export const api = {
       body: user,
     }),
 
+  register: (body: { login: string; password: string; first_name: string }) =>
+    req<{ access_token: string; first_name: string }>("/api/auth/register", {
+      method: "POST",
+      body,
+    }),
+
+  passwordLogin: (body: { login: string; password: string }) =>
+    req<{ access_token: string; first_name: string }>("/api/auth/login", {
+      method: "POST",
+      body,
+    }),
+
   me: (token: string) => req<Profile>("/api/me", { token }),
 
   grades: (token: string) => req<Grade[]>("/api/grades", { token }),

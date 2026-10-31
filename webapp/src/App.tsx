@@ -222,6 +222,23 @@ export default function App() {
     [bootstrap],
   );
 
+  const handlePasswordAuth = useCallback(
+    async (accessToken: string) => {
+      try {
+        setError("");
+        setPhase("busy");
+        storeToken(accessToken);
+        setToken(accessToken);
+        setWebSession(true);
+        await bootstrap(accessToken);
+      } catch (e) {
+        setError(describe(e));
+        setPhase("web_login");
+      }
+    },
+    [bootstrap],
+  );
+
   const logout = () => {
     clearStoredToken();
     setWebSession(false);
@@ -336,7 +353,11 @@ export default function App() {
             </Card>
           </div>
         ) : phase === "web_login" ? (
-          <WebLogin onAuth={handleWebLogin} error={error} />
+          <WebLogin
+            onAuth={handleWebLogin}
+            onPasswordAuth={handlePasswordAuth}
+            error={error}
+          />
         ) : phase === "error" ? (
           <div className="mx-auto max-w-md py-12">
             <Card className="p-8 text-center border-rose-200 bg-rose-50/50">

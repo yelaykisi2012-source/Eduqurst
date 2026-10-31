@@ -65,6 +65,64 @@ body {
   }
 }
 
+/* Background mesh blobs animation */
+@keyframes blobFloat1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -45px) scale(1.08); }
+  66% { transform: translate(-25px, 25px) scale(0.94); }
+}
+
+@keyframes blobFloat2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-35px, 35px) scale(1.06); }
+  66% { transform: translate(25px, -25px) scale(0.92); }
+}
+
+@keyframes blobFloat3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(20px, 30px) scale(1.05); }
+}
+
+/* Card & icon choreography */
+@keyframes cardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes iconEntrance {
+  0% {
+    opacity: 0;
+    transform: scale(0.6) rotate(-8deg);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    filter: blur(0);
+  }
+}
+
+@keyframes scaleXExpand {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes shakeError {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
 .animate-fade-in {
   animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -75,6 +133,46 @@ body {
 
 .animate-pulse-glow {
   animation: pulseGlow 2s infinite;
+}
+
+.animate-blob-1 {
+  animation: blobFloat1 20s ease-in-out infinite;
+}
+
+.animate-blob-2 {
+  animation: blobFloat2 24s ease-in-out infinite;
+}
+
+.animate-blob-3 {
+  animation: blobFloat3 18s ease-in-out infinite;
+}
+
+.animate-card-enter {
+  animation: cardEnter 0.62s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-icon-entrance {
+  animation: iconEntrance 0.52s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+}
+
+.animate-divider {
+  animation: scaleXExpand 0.4s ease-out 0.28s both;
+}
+
+.animate-shake {
+  animation: shakeError 0.22s ease-in-out;
+}
+
+/* Smooth accordion transition using grid-template-rows */
+.accordion-grid {
+  display: grid;
+  transition: grid-template-rows 340ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.accordion-grid-closed {
+  grid-template-rows: 0fr;
+}
+.accordion-grid-open {
+  grid-template-rows: 1fr;
 }
 
 /* Custom scrollbars */
@@ -91,5 +189,23 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .animate-blob-1,
+  .animate-blob-2,
+  .animate-blob-3,
+  .animate-card-enter,
+  .animate-icon-entrance,
+  .animate-divider,
+  .animate-shake,
+  .animate-fade-in,
+  .animate-scale-in,
+  .animate-pulse-glow {
+    animation: none !important;
+    transition-duration: 0.12s !important;
+    transform: none !important;
+  }
 }
 
