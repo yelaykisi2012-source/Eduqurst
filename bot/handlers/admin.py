@@ -544,3 +544,35 @@ async def adm_question_options(message: Message, state: FSMContext) -> None:
         f"✅ Savol qo‘shildi ({q['option_count']} variant, to‘g‘risi: {q['correct_count']}).",
         reply_markup=admin_menu_keyboard(),
     )
+
+
+# ------------------------------------------------------------------ matn kutilayotganda fayl yuborildi
+# The bot never silently ignores a message: if a pupil/admin sends a file
+# (PDF, photo, video, voice…) where TEXT was expected, we explain and keep
+# the FSM state so the flow can continue.
+
+@router.message(StateFilter(AdmStates), ~F.text)
+async def adm_non_text(message: Message, state: FSMContext) -> None:
+    current = await state.get_state()
+    if current == AdmStates.material_title.state:
+        await message.answer(
+            "📎 Fayl qabul qilinmaydi — bot fayllarni saqlamaydi, faqat <b>matn va havola</b> bilan ishlaydi.\n"
+            "Avval material <b>sarlavha</b>sini matn qilib yuboring, keyin esa havola so‘rayman."
+        )
+    elif current == AdmStates.material_content.state:
+        data = await state.get_data()
+        kind = data.get("material_kind", "")
+        if kind == "text":
+            await message.answer(
+                "📎 Fayl emas, <b>yozma matn</b> yuboring — o‘quvchi uni dars ichida o‘qiydi."
+            )
+        else:
+            await message.answer(
+                "📎 Bot faylni qabul qilmaydi — bu format uchun <b>havola (link)</b> kerak.\n"
+                "Faylni Google Drive / Telegram kanal yoki bulutga joylang, "
+                "«ulashish» havolasini nusxalab shu yerga yuboring "
+                "(https://… bilan boshlanadi).\n"
+                "To‘xtatmoqchi bo‘lsangiz «⬅️ Bekor» tugmasini bosing."
+            )
+    else:
+        await _press_a_button(message)

@@ -402,3 +402,12 @@ async def msg_text_answer(message: Message, state: FSMContext) -> None:
             message, questions, data["lesson_id"], nxt, answers,
             state=state, quiz_title=data.get("quiz_title", "Test"),
         )
+
+
+@router.message(QuizStates.running, ~F.text)
+async def msg_quiz_non_text(message: Message) -> None:
+    """A file/sticker/photo sent mid-quiz must not be silently ignored."""
+    await message.answer(
+        "✍️ Test davom etmoqda — javobingizni <b>matn</b> qilib yozing "
+        "(variant raqami yoki harfi, yoki tugmalardan birini bosing)."
+    )

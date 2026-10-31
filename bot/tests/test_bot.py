@@ -30,7 +30,8 @@ os.environ.setdefault("ADMIN_USER_IDS", "999000111")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from aiogram.types import CallbackQuery, Chat, Message, User  # noqa: E402
+from aiogram import Bot  # noqa: E402
+from aiogram.types import CallbackQuery, Chat, Document, Message, User  # noqa: E402
 
 from handlers import admin as admin_handlers  # noqa: E402
 from handlers import learn as learn_handlers  # noqa: E402
@@ -130,6 +131,24 @@ def fake_callback(data: str) -> CallbackQuery:
     )
 
 
+def fake_message(text: str | None = None, document: bool = False) -> Message:
+    return Message(
+        message_id=1,
+        date=datetime.now(timezone.utc),
+        chat=Chat(id=1, type="private"),
+        from_user=User(id=999000111, is_bot=False, first_name="Admin"),
+        text=text,
+        document=(
+            Document(
+                file_id="test-file-id", file_unique_id="test-unique",
+                file_name="Welcome-to-the-English-Alphabet.pdf", file_size=11_000_000,
+            )
+            if document
+            else None
+        ),
+    )
+
+
 class KeyboardTests(unittest.TestCase):
     def test_no_button_is_dead(self):
         for button in all_buttons():
@@ -222,6 +241,42 @@ class HandlerCoverageTests(unittest.TestCase):
         self.assertEqual(self._first_handler("qa:0:1", running), "cb_answer")
         # after a restart / lost state the same button still answers the pupil
         self.assertEqual(self._first_handler("qa:0:1", None), "cb_stale_answer")
+
+
+class NonTextHandlerTests(unittest.TestCase):
+    """A file sent where text is expected must be answered, never ignored."""
+
+    def _first_message_handler(self, raw_state: str | None, text: str | None = None, document: bool = False) -> str | None:
+        event = fake_message(text=text, document=document)
+        # Command filters need a Bot instance; it never touches the network
+        # because our test messages are not commands with bot mentions.
+        fake_bot = Bot(token="012345:TEST_TOKEN_NOT_REAL")
+        for router in ROUTERS:
+            for handler in router.message.handlers:
+                ok, _ = asyncio.run(handler.check(event, raw_state=raw_state, bot=fake_bot))
+                if ok:
+                    return getattr(handler.callback, "__name__", "?")
+        return None
+
+    def test_document_in_material_title_state_is_answered(self):
+        state = admin_handlers.AdmStates.material_title.state
+        self.assertEqual(self._first_message_handler(state, document=True), "adm_non_text")
+
+    def test_document_in_material_content_state_is_answered(self):
+        state = admin_handlers.AdmStates.material_content.state
+        self.assertEqual(self._first_message_handler(state, document=True), "adm_non_text")
+
+    def test_plain_text_in_material_title_still_reaches_text_handler(self):
+        state = admin_handlers.AdmStates.material_title.state
+        self.assertEqual(self._first_message_handler(state, text="Alifbo"), "adm_material_title")
+
+    def test_document_during_quiz_is_answered(self):
+        state = learn_handlers.QuizStates.running.state
+        self.assertEqual(self._first_message_handler(state, document=True), "msg_quiz_non_text")
+
+    def test_text_answer_during_quiz_still_reaches_text_handler(self):
+        state = learn_handlers.QuizStates.running.state
+        self.assertEqual(self._first_message_handler(state, text="7"), "msg_text_answer")
 
 
 class MessageHelperTests(unittest.TestCase):
