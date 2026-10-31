@@ -607,3 +607,78 @@ def test_lesson_four_formats_material_flow(client: TestClient):
         headers=_h(),
     ).json()
     assert {m["kind"] for m in bot_detail["materials"]} == {"video", "pdf", "live", "text"}
+
+
+def test_internal_admin_can_add_four_formats(client: TestClient):
+    """The bot's admin flow must be able to post every format through /api/internal."""
+    # the admin must exist as a pupil (the bot upserts on /start) ...
+    client.post(
+        "/api/internal/pupils",
+        json={"telegram_id": 999000111, "first_name": "Admin"},
+        headers=_h(),
+    )
+    subj = client.post(
+        "/api/internal/admin/subjects",
+        json={
+            "telegram_id": 999000111,
+            "data": {"grade_id": 9, "name": "Bot media", "emoji": "🎥"},
+        },
+        headers=_h(),
+    )
+    assert subj.status_code == 201, subj.text
+    lesson = client.post(
+        f"/api/internal/admin/subjects/{subj.json()['id']}/lessons",
+        json={
+            "telegram_id": 999000111,
+            "data": {"title": "Bot orqali dars", "explanation": "To‘rt format botdan."},
+        },
+        headers=_h(),
+    )
+    assert lesson.status_code == 201, lesson.text
+    lid = lesson.json()["id"]
+
+    formats = [
+        ("video", "Video", "https://youtu.be/abc123"),
+        ("pdf", "PDF", "https://example.com/a.pdf"),
+        ("live", "Jonli", "https://meet.example.com/room"),
+        ("text", "Yozma", "Qisqa eslatma matni"),
+    ]
+    for kind, title, content in formats:
+        r = client.post(
+            f"/api/internal/admin/lessons/{lid}/materials",
+            json={"telegram_id": 999000111, "data": {"kind": kind, "title": title, "content": content}},
+            headers=_h(),
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["kind"] == kind
+
+    # same server-side validation as the Mini App admin panel
+    bad_url = client.post(
+        f"/api/internal/admin/lessons/{lid}/materials",
+        json={"telegram_id": 999000111, "data": {"kind": "video", "title": "X", "content": "havola emas"}},
+        headers=_h(),
+    )
+    assert bad_url.status_code == 422
+    bad_kind = client.post(
+        f"/api/internal/admin/lessons/{lid}/materials",
+        json={"telegram_id": 999000111, "data": {"kind": "audio", "title": "X", "content": "https://a.uz/a.mp3"}},
+        headers=_h(),
+    )
+    assert bad_kind.status_code == 422
+
+    lessons = client.get(
+        f"/api/internal/admin/subjects/{subj.json()['id']}/lessons",
+        params={"telegram_id": 999000111},
+        headers=_h(),
+    ).json()
+    assert lessons[0]["material_count"] == 4
+
+    # a non-admin telegram id is refused even with a valid bot token
+    client.post("/api/internal/pupils", json={"telegram_id": 777505, "first_name": "Oddiy"}, headers=_h())
+    forbidden = client.post(
+        f"/api/internal/admin/lessons/{lid}/materials",
+        json={"telegram_id": 777505, "data": {"kind": "text", "title": "XX", "content": "yy"}},
+        headers=_h(),
+    )
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"]["error"] == "not_admin"
