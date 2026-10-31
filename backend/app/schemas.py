@@ -13,6 +13,19 @@ class TelegramLoginRequest(BaseModel):
     init_data: str = Field(min_length=10)
 
 
+class WebRegisterRequest(BaseModel):
+    """A pupil without Telegram creates a login/password account."""
+
+    login: str = Field(min_length=1, max_length=40)
+    password: str = Field(min_length=1, max_length=128)
+    first_name: str = Field(default="", max_length=128)
+
+
+class WebPasswordLoginRequest(BaseModel):
+    login: str = Field(min_length=1, max_length=40)
+    password: str = Field(min_length=1, max_length=128)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

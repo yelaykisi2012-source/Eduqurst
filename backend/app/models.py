@@ -34,12 +34,26 @@ def utcnow() -> datetime:
 
 
 class User(Base):
-    """A pupil. Only minimal Telegram info is stored (child privacy)."""
+    """A pupil. Only minimal Telegram info is stored (child privacy).
+
+    Two ways to own an account:
+      * Telegram  -> telegram_id is set (bot / Mini App initData login)
+      * Web       -> login + password_hash are set (login/password on the site)
+    Exactly one path is used per pupil; both end up with the SAME JWT and the
+    same grade/progress/gamification data. telegram_id is nullable so web
+    accounts (no Telegram) can exist without faking an id.
+    """
 
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    telegram_id: Mapped[int | None] = mapped_column(
+        BigInteger, unique=True, index=True, nullable=True
+    )
+    # Web account credentials (nullable: Telegram pupils have none).
+    # login is stored lowercase; password_hash is a scrypt$... string.
+    login: Mapped[str | None] = mapped_column(String(32), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
     username: Mapped[str | None] = mapped_column(String(64))
     first_name: Mapped[str] = mapped_column(String(128), default="")
     last_name: Mapped[str | None] = mapped_column(String(128))
