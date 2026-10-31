@@ -96,6 +96,17 @@ export interface LessonDetail {
   passed: boolean;
 }
 
+/** Payload the Telegram Login Widget hands to onTelegramAuth (browser login). */
+export interface TelegramWebUser {
+  id: number;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  auth_date: number;
+  hash: string;
+}
+
 /**
  * Lesson material. `kind` is one of:
  *   video | pdf  → content is an external URL OR an uploaded Telegram file

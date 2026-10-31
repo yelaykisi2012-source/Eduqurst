@@ -7,14 +7,15 @@ import LessonPage from "./components/LessonPage";
 import QuizPage from "./components/QuizPage";
 import ResultScreen from "./components/ResultScreen";
 import AdminPage from "./components/AdminPage";
+import WebLogin from "./components/WebLogin";
 import { AchievementsPage, ProfilePage } from "./components/Pages";
 import { api, ApiError } from "./api";
-import type { Grade, Profile, Progress, QuizResult, SubjectItem } from "./types";
+import type { Grade, Profile, Progress, QuizResult, SubjectItem, TelegramWebUser } from "./types";
 
 type Phase =
   | "boot"
   | "no_backend"
-  | "outside"
+  | "web_login"
   | "busy"
   | "onboarding"
   | "home"
@@ -37,6 +38,31 @@ const GRADIENTS = [
   "from-indigo-500 to-blue-700",
 ];
 
+// Browser sessions only (inside Telegram we always re-login with initData).
+const TOKEN_KEY = "eduquest_token";
+
+function readStoredToken(): string {
+  try {
+    return window.localStorage.getItem(TOKEN_KEY) ?? "";
+  } catch {
+    return ""; // private mode / storage disabled
+  }
+}
+function storeToken(value: string) {
+  try {
+    window.localStorage.setItem(TOKEN_KEY, value);
+  } catch {
+    /* the in-memory token still works for this tab */
+  }
+}
+function clearStoredToken() {
+  try {
+    window.localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 function describe(e: unknown): string {
   if (e instanceof ApiError) return `${e.status ? `(${e.status}) ` : ""}${e.message}`;
   return "Aloqa xatosi: serverga bog‘lanib bo‘lmadi.";
@@ -54,6 +80,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [webSession, setWebSession] = useState(false);
   const started = useRef(false);
 
   const showToast = (msg: string) => {
@@ -68,42 +95,70 @@ export default function App() {
     setProgress(prog);
   }, []);
 
-  // Boot: verify Telegram identity through the backend, then branch to
-  // onboarding (no grade yet) or home (grade saved).
+  const bootstrap = useCallback(async (tk: string) => {
+    const me = await api.me(tk);
+    setProfile(me);
+    if (me.needs_grade_selection) {
+      setGrades(await api.grades(tk));
+      setPhase("onboarding");
+    } else {
+      await loadHome(tk);
+      setPhase("home");
+    }
+  }, [loadHome]);
+
+  // Boot: inside Telegram verify initData; in a browser use the Telegram
+  // Login Widget session (stored JWT) or show the widget.
   useEffect(() => {
     if (started.current) return;
     started.current = true;
 
-    const tg = window.Telegram?.WebApp;
     if (!api.hasBackend()) {
       setPhase("no_backend");
       return;
     }
-    if (!tg?.initData) {
-      setPhase("outside");
+
+    const tg = window.Telegram?.WebApp;
+    if (tg?.initData) {
+      (async () => {
+        try {
+          setPhase("busy");
+          const { access_token } = await api.login(tg.initData);
+          clearStoredToken(); // inside Telegram, identity always comes fresh
+          setToken(access_token);
+          setWebSession(false);
+          await bootstrap(access_token);
+        } catch (e) {
+          setError(describe(e));
+          setPhase("error");
+        }
+      })();
       return;
     }
 
+    const saved = readStoredToken();
+    if (!saved) {
+      setPhase("web_login");
+      return;
+    }
     (async () => {
       try {
         setPhase("busy");
-        const { access_token } = await api.login(tg!.initData);
-        setToken(access_token);
-        const me = await api.me(access_token);
-        setProfile(me);
-        if (me.needs_grade_selection) {
-          setGrades(await api.grades(access_token));
-          setPhase("onboarding");
-        } else {
-          await loadHome(access_token);
-          setPhase("home");
-        }
+        setToken(saved);
+        setWebSession(true);
+        await bootstrap(saved);
       } catch (e) {
-        setError(describe(e));
-        setPhase("error");
+        if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+          clearStoredToken();
+          setWebSession(false);
+          setPhase("web_login");
+        } else {
+          setError(describe(e));
+          setPhase("error");
+        }
       }
     })();
-  }, [loadHome]);
+  }, [bootstrap]);
 
   const pickGrade = async (grade: Grade) => {
     setBusy(true);
@@ -132,6 +187,37 @@ export default function App() {
       }
     }
     setPhase("onboarding");
+  };
+
+  const handleWebLogin = useCallback(
+    async (user: TelegramWebUser) => {
+      try {
+        setError("");
+        setPhase("busy");
+        const { access_token } = await api.webLogin(user);
+        storeToken(access_token);
+        setToken(access_token);
+        setWebSession(true);
+        await bootstrap(access_token);
+      } catch (e) {
+        setError(describe(e));
+        setPhase("web_login");
+      }
+    },
+    [bootstrap],
+  );
+
+  const logout = () => {
+    clearStoredToken();
+    setWebSession(false);
+    setToken("");
+    setProfile(null);
+    setProgress(null);
+    setSubjects([]);
+    setGrades([]);
+    setView({ kind: "home" });
+    setError("");
+    setPhase("web_login");
   };
 
   /** After a quiz result: refresh counts and return to the lesson ladder. */
@@ -164,8 +250,8 @@ export default function App() {
           <h1 className="text-2xl font-extrabold text-blue-800">EduQuest</h1>
           <p className="text-sm text-blue-500">
             {phase === "home" && gradeLabel ? `${gradeLabel} · ` : ""}
-            {phase === "outside"
-              ? "Brauzerda ko‘ryapsiz (Telegram ichida emas)"
+            {phase === "web_login"
+              ? "Telegram orqali kiring"
               : `Xush kelibsiz, ${name}!`}
           </p>
         </div>
@@ -195,11 +281,8 @@ export default function App() {
           title="Backend sozlanmagan"
           body="Mini App server manzilini topa olmadi. webapp/.env fayliga VITE_API_URL qiymatini kiriting (masalan http://127.0.0.1:8000)."
         />
-      ) : phase === "outside" ? (
-        <Notice
-          title="Telegram ichida oching"
-          body="Hisobingiz va sinfingiz xavfsiz yuklanishi uchun Mini App’ni Telegram botingiz (/app tugmasi) orqali oching. Brauzerda faqat ko‘rinish sinov uchun."
-        />
+      ) : phase === "web_login" ? (
+        <WebLogin onAuth={handleWebLogin} error={error} />
       ) : phase === "error" ? (
         <Notice title="Xatolik yuz berdi" body={error} tone="error" />
       ) : phase === "onboarding" ? (
@@ -303,7 +386,12 @@ export default function App() {
       ) : view.kind === "admin" ? (
         <AdminPage token={token} notify={showToast} />
       ) : (
-        <ProfilePage profile={profile} progress={progress} onChangeGrade={changeGrade} />
+        <ProfilePage
+          profile={profile}
+          progress={progress}
+          onChangeGrade={changeGrade}
+          onLogout={webSession ? logout : undefined}
+        />
       )}
 
       {/* Toast */}
@@ -313,7 +401,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Bottom nav — all tabs are real; Admin tab appears only for admins */}
+      {/* Bottom nav — only on the home phase, so no dead buttons elsewhere */}
+      {phase === "home" && (
       <nav className="fixed inset-x-0 bottom-0 mx-auto flex max-w-md justify-around border-t border-blue-100 bg-white py-3">
         {[
           { key: "home", label: "Bosh sahifa", emoji: "🏠" },
@@ -350,6 +439,7 @@ export default function App() {
           );
         })}
       </nav>
+      )}
     </div>
   );
 }

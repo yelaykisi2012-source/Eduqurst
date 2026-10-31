@@ -31,7 +31,19 @@ interface TelegramWebApp {
   HapticFeedback?: { impactOccurred: (style: string) => void };
 }
 
+interface TelegramLoginUser {
+  id: number;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  auth_date: number;
+  hash: string;
+}
+
 interface Window {
   Telegram?: { WebApp: TelegramWebApp };
+  // Global callback used by telegram-widget.js (data-onauth="onTelegramAuth(user)").
+  onTelegramAuth?: (user: TelegramLoginUser) => void;
 }
 

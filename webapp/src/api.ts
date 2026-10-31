@@ -24,6 +24,7 @@ import type {
   Quiz,
   QuizResult,
   SubjectItem,
+  TelegramWebUser,
 } from "./types";
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
@@ -86,6 +87,13 @@ export const api = {
     req<{ access_token: string; first_name: string }>("/api/auth/telegram", {
       method: "POST",
       body: { init_data: initData },
+    }),
+
+  /** Browser login via the Telegram Login Widget (outside Telegram). */
+  webLogin: (user: TelegramWebUser) =>
+    req<{ access_token: string; first_name: string }>("/api/auth/telegram-web", {
+      method: "POST",
+      body: user,
     }),
 
   me: (token: string) => req<Profile>("/api/me", { token }),

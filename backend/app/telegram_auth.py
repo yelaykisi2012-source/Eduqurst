@@ -119,3 +119,63 @@ def verify_init_data(init_data: str, bot_token: str, max_age_seconds: int = 86_4
     if not user.get("id"):
         raise TelegramAuthError("user.id yo'q")
     return user
+
+
+def verify_web_login(data: dict, bot_token: str, max_age_seconds: int = 86_400) -> dict:
+    """Verify a Telegram Login Widget payload (browser login, outside Telegram).
+
+    Algorithm (official Login Widget docs):
+      secret_key = SHA256(bot_token)
+      data_check_string = sorted "key=value" of all fields except hash, "\\n"
+      hash = HMAC_SHA256(key=secret_key, data=data_check_string)
+    Values are the plain strings/numbers the widget hands to the page; the
+    widget signs exactly what it sends, so we sign exactly what we received.
+    """
+    if not data or not bot_token:
+        raise TelegramAuthError("login ma'lumoti yoki bot token yo'q")
+
+    # Drop None so a forwarder that maps missing optional fields to null does
+    # not add fields Telegram never signed.
+    payload = {k: str(v) for k, v in data.items() if v is not None}
+    received_hash = payload.pop("hash", None)
+    if not received_hash:
+        raise TelegramAuthError("login ma'lumotida hash yo'q")
+
+    try:
+        telegram_id = int(payload.get("id", ""))
+    except ValueError as exc:
+        raise TelegramAuthError("login ma'lumotida id yo'q") from exc
+    if telegram_id <= 0:
+        raise TelegramAuthError("login ma'lumotida id noto'g'ri")
+
+    try:
+        auth_date = int(payload.get("auth_date", "0"))
+    except ValueError as exc:
+        raise TelegramAuthError("login auth_date buzuq") from exc
+    if auth_date <= 0:
+        raise TelegramAuthError("login ma'lumotida auth_date yo'q")
+    now = time.time()
+    if auth_date > now + 300:
+        raise TelegramAuthError("login auth_date kelajakdan")
+    if now - auth_date > max_age_seconds:
+        raise TelegramAuthError("login ma'lumoti eskirgan (24 soat+)")
+
+    check_string = _check_string(payload)
+    secret_key = hashlib.sha256(bot_token.encode("utf-8")).digest()
+    computed = hmac.new(secret_key, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(computed, received_hash):
+        logger.warning(
+            "web login HMAC mismatch: fields=%s received=%s computed=%s",
+            sorted(payload.keys()), received_hash[:12], computed[:12],
+        )
+        raise TelegramAuthError("Telegram login imzosi noto'g'ri")
+
+    return {
+        "id": telegram_id,
+        "first_name": payload.get("first_name", ""),
+        "last_name": payload.get("last_name"),
+        "username": payload.get("username"),
+        "photo_url": payload.get("photo_url"),
+    }
+

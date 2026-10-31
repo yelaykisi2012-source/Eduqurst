@@ -12,7 +12,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import login_as, make_init_data, pick_grade
+from tests.conftest import login_as, make_init_data, make_web_login, pick_grade
 
 
 # ---------- auth ----------
@@ -32,9 +32,9 @@ def test_login_rejects_tampered_hash(client: TestClient):
 
 
 def test_login_accepts_names_with_spaces(client: TestClient):
-    # Telegram percent-encodes a space in names as %20 and signs the RAW
-    # string. Decode-then-re-encode would turn it into '+' and break every
-    # real login — this regression test catches exactly that bug.
+    # Telegram percent-encodes a space in initData values (%20) and signs the
+    # DECODED check-string, i.e. with a real space. Signing the raw %20 text
+    # rejects every real login — this regression test catches exactly that.
     data = make_init_data(
         {"id": 555003, "first_name": "Ali Karim", "last_name": "Said o'g'li",
          "username": "ali_test"}
@@ -68,6 +68,43 @@ def test_login_rejects_missing_stale_or_future_auth_date(client: TestClient):
     # a fresh date still works
     fresh = make_init_data(user, auth_date=int(time.time()) - 60)
     assert client.post("/api/auth/telegram", json={"init_data": fresh}).status_code == 200
+
+
+# ---------- web login (Telegram Login Widget, browser outside Telegram) ----------
+def test_web_login_with_valid_widget_payload(client: TestClient):
+    payload = make_web_login({
+        "id": 556001,
+        "first_name": "Veb",
+        "last_name": "Foydalanuvchi",
+        "username": "veb_user",
+        "photo_url": "https://t.me/i/userpic/320/veb.jpg",
+    })
+    resp = client.post("/api/auth/telegram-web", json=payload)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["first_name"] == "Veb"
+    me = client.get(
+        "/api/me", headers={"Authorization": f"Bearer {resp.json()['access_token']}"}
+    )
+    assert me.status_code == 200
+    assert me.json()["first_name"] == "Veb"
+
+
+def test_web_login_rejects_tampered_hash(client: TestClient):
+    payload = make_web_login({"id": 556002, "first_name": "Fake"}, tamper=True)
+    assert client.post("/api/auth/telegram-web", json=payload).status_code == 401
+
+
+def test_web_login_rejects_stale_payload(client: TestClient):
+    payload = make_web_login(
+        {"id": 556003, "first_name": "Eski"}, auth_date=int(time.time()) - 90_000
+    )
+    assert client.post("/api/auth/telegram-web", json=payload).status_code == 401
+
+
+def test_web_login_rejects_missing_hash(client: TestClient):
+    payload = make_web_login({"id": 556004, "first_name": "Hashsiz"})
+    payload.pop("hash")
+    assert client.post("/api/auth/telegram-web", json=payload).status_code == 401
 
 
 def test_protected_endpoint_requires_token(client: TestClient):

@@ -43,10 +43,13 @@ export function ProfilePage({
   profile,
   progress,
   onChangeGrade,
+  onLogout,
 }: {
   profile: Profile | null;
   progress: Progress | null;
   onChangeGrade: () => void;
+  /** Present only for browser sessions (no Telegram Mini App identity). */
+  onLogout?: () => void;
 }) {
   return (
     <section className="mt-6">
@@ -101,6 +104,15 @@ export function ProfilePage({
       <p className="mt-2 text-center text-[11px] text-slate-400">
         Sinf o'zgarsa ham eski progress'ingiz o'chmaydi — u o'sha sinfga bog'langan qoladi.
       </p>
+
+      {onLogout && (
+        <button
+          onClick={onLogout}
+          className="mt-5 w-full rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-600 shadow-sm transition-transform active:scale-95"
+        >
+          Chiqish 🚪
+        </button>
+      )}
     </section>
   );
 }

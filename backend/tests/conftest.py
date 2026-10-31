@@ -68,6 +68,26 @@ def make_init_data(
     return "&".join(parts)
 
 
+def make_web_login(
+    user: dict, *, auth_date: int | None = None, tamper: bool = False
+) -> dict:
+    """Forge a Telegram Login Widget payload exactly as the widget signs it.
+
+    Login Widget: secret_key = SHA256(bot_token); hash = HMAC-SHA256(secret_key,
+    data_check_string). Values are plain (not URL-encoded), fields sorted,
+    hash excluded.
+    """
+    data = {k: str(v) for k, v in user.items() if k != "hash"}
+    data["auth_date"] = str(int(time.time()) if auth_date is None else auth_date)
+    check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()) if k != "hash")
+    secret = hashlib.sha256(TEST_BOT_TOKEN.encode()).digest()
+    digest = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
+    if tamper:
+        digest = "0" * len(digest)
+    data["hash"] = digest
+    return data
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _prepare_db():
     Base.metadata.drop_all(engine)
