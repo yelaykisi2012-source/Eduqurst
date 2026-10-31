@@ -9,7 +9,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import admin, auth, bot_internal, content, leaderboard, me, quiz
+from app.routers import (
+    admin,
+    auth,
+    bot_internal,
+    certificates,
+    content,
+    leaderboard,
+    me,
+    quiz,
+)
 
 settings = get_settings()
 
@@ -32,6 +41,7 @@ app.include_router(content.router)
 app.include_router(quiz.router)
 app.include_router(me.router)
 app.include_router(leaderboard.router)
+app.include_router(certificates.router)
 app.include_router(bot_internal.router)
 app.include_router(admin.router)
 

@@ -1,7 +1,7 @@
 """app/schemas.py — Pydantic request/response models (API contract)."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -88,6 +88,41 @@ class LeaderboardResponse(BaseModel):
     participants: int
     top: list[LeaderboardEntry]
     me: LeaderboardMe | None = None
+
+
+# ---------- certificates ----------
+class CertificateOut(BaseModel):
+    code: str
+    subject_id: int
+    subject_name: str
+    grade_name: str
+    pupil_name: str
+    score_percent: int
+    stars: int
+    issued_at: datetime
+    verify_url: str
+
+
+class EligibleCertificateOut(BaseModel):
+    """A finished course; `certificate` is set once it has been issued."""
+
+    subject_id: int
+    subject_name: str
+    emoji: str
+    total_lessons: int
+    score_percent: int
+    certificate: CertificateOut | None = None
+
+
+class CertificateVerifyOut(BaseModel):
+    valid: bool
+    code: str
+    pupil_name: str
+    grade_name: str
+    subject_name: str
+    score_percent: int
+    stars: int
+    issued_at: datetime
 
 
 # ---------- admin ----------

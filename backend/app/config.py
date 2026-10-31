@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"
     # Comma-separated telegram user ids allowed as admins (Stage 8 uses this).
     ADMIN_TELEGRAM_IDS: str = ""
+    # Public backend base for QR links printed on certificates (not a secret).
+    PUBLIC_BASE_URL: str = "https://eduqurst.onrender.com"
 
     @property
     def cors_origin_list(self) -> list[str]:

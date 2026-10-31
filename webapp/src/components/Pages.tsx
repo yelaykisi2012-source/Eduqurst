@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api";
-import type { Leaderboard, Profile, Progress } from "../types";
+import type {
+  Certificate,
+  EligibleCertificate,
+  Leaderboard,
+  Profile,
+  Progress,
+} from "../types";
 import Card from "./ui/Card";
 import Button from "./ui/Button";
 import Badge from "./ui/Badge";
@@ -9,6 +15,7 @@ import ProgressBar from "./ui/ProgressBar";
 import {
   IconTrophy,
   IconCheck,
+  IconDownload,
   IconGraduationCap,
   IconLock,
 } from "./ui/Icons";
@@ -113,6 +120,161 @@ function LeagueCard({ token, gradeId }: { token: string; gradeId: number | null 
   );
 }
 
+/** Course certificates: a finished course earns a QR-verified PDF. */
+function CertificatesCard({ token }: { token: string }) {
+  const [eligible, setEligible] = useState<EligibleCertificate[] | null>(null);
+  const [issued, setIssued] = useState<Certificate[]>([]);
+  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    setFailed(false);
+    Promise.all([api.eligibleCertificates(token), api.certificates(token)])
+      .then(([courses, certs]) => {
+        if (!alive) return;
+        setEligible(courses);
+        setIssued(certs);
+      })
+      .catch(() => {
+        if (alive) setFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
+  const refresh = () => {
+    api.eligibleCertificates(token).then(setEligible).catch(() => {});
+    api.certificates(token).then(setIssued).catch(() => {});
+  };
+
+  const download = async (subjectId: number) => {
+    setBusy(subjectId);
+    setError(null);
+    try {
+      const { blob, fileName } = await api.downloadCertificate(token, subjectId);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sertifikatni yuklab bo‘lmadi");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const older = issued.filter(
+    (cert) => !(eligible ?? []).some((course) => course.subject_id === cert.subject_id),
+  );
+  const empty = eligible !== null && eligible.length === 0 && older.length === 0;
+
+  return (
+    <Card variant="elevated" className="mb-3.5 sm:mb-6 p-3.5 sm:p-5 bg-white">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm sm:text-base font-black text-slate-900">
+            📜 Sertifikatlar
+          </h2>
+          <p className="text-[10px] sm:text-xs font-semibold text-slate-400 mt-0.5">
+            Kursni to‘liq tugatganingizda QR-kodli PDF sertifikat olinadi
+          </p>
+        </div>
+        {issued.length > 0 && (
+          <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+            {issued.length} ta
+          </span>
+        )}
+      </div>
+
+      {failed ? (
+        <p className="text-[11px] text-slate-400 mt-3">
+          Sertifikatlarni yuklab bo‘lmadi.
+        </p>
+      ) : eligible === null ? (
+        <p className="text-[11px] text-slate-400 mt-3">Yuklanmoqda…</p>
+      ) : empty ? (
+        <p className="text-[11px] sm:text-xs text-slate-500 mt-3">
+          Hali sertifikat yo‘q. Biror fanda barcha darslarni muvaffaqiyatli tugating —
+          sertifikat shu yerda paydo bo‘ladi. 📈
+        </p>
+      ) : (
+        <ul className="mt-2.5 divide-y divide-slate-100">
+          {eligible.map((course) => {
+            const cert = course.certificate;
+            return (
+              <li key={course.subject_id} className="flex items-center gap-2 py-2">
+                <span className="text-xl shrink-0" aria-hidden>
+                  {course.emoji}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                    {course.subject_name}
+                  </p>
+                  <p className="text-[10px] sm:text-[11px] font-semibold text-slate-400 truncate">
+                    {course.total_lessons} ta dars · {course.score_percent}% ·{" "}
+                    {cert ? `kod ${cert.code}` : "kurs tugallandi"}
+                  </p>
+                </div>
+                {cert && (
+                  <Badge variant="emerald" size="sm" className="hidden sm:inline-flex">
+                    Tayyor
+                  </Badge>
+                )}
+                <Button
+                  variant={cert ? "secondary" : "accent"}
+                  size="sm"
+                  loading={busy === course.subject_id}
+                  onClick={() => download(course.subject_id)}
+                  icon={
+                    busy === course.subject_id ? undefined : <IconDownload size={14} />
+                  }
+                >
+                  {cert ? "Yuklash" : "Olish"}
+                </Button>
+              </li>
+            );
+          })}
+          {older.map((cert) => (
+            <li key={`old-${cert.subject_id}`} className="flex items-center gap-2 py-2">
+              <span className="text-xl shrink-0" aria-hidden>
+                📜
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                  {cert.subject_name}
+                </p>
+                <p className="text-[10px] sm:text-[11px] font-semibold text-slate-400 truncate">
+                  {cert.grade_name} · {cert.score_percent}% · kod {cert.code}
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={busy === cert.subject_id}
+                onClick={() => download(cert.subject_id)}
+                icon={busy === cert.subject_id ? undefined : <IconDownload size={14} />}
+              >
+                Yuklash
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {error && <p className="mt-2 text-[11px] font-semibold text-rose-600">{error}</p>}
+    </Card>
+  );
+}
+
 /** Achievements / Yutuqlar Page */
 export function AchievementsPage({
   progress,
@@ -162,6 +324,9 @@ export function AchievementsPage({
 
       {/* Weekly league */}
       <LeagueCard token={token} gradeId={progress?.grade_id ?? null} />
+
+      {/* Course certificates */}
+      <CertificatesCard token={token} />
 
       {/* Achievements List */}
       <div className="space-y-2 sm:space-y-3">

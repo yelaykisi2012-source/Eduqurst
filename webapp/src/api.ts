@@ -14,6 +14,8 @@ import type {
   AdminLesson,
   AdminQuestionDetail,
   AdminSubject,
+  Certificate,
+  EligibleCertificate,
   Grade,
   GradeOverview,
   Leaderboard,
@@ -129,6 +131,47 @@ export const api = {
 
   /** Weekly star league: Top-10 of the pupil's grade (server picks the grade). */
   leaderboard: (token: string) => req<Leaderboard>("/api/leaderboard", { token }),
+
+  /** Certificates already issued to this pupil. */
+  certificates: (token: string) => req<Certificate[]>("/api/certificates", { token }),
+
+  /** Finished courses of the pupil's grade; `certificate` appears once issued. */
+  eligibleCertificates: (token: string) =>
+    req<EligibleCertificate[]>("/api/certificates/eligible", { token }),
+
+  /**
+   * Download the course certificate PDF (issued once on the first call). The
+   * token travels in the Authorization header, never in the URL.
+   */
+  downloadCertificate: async (
+    token: string,
+    subjectId: number,
+  ): Promise<{ blob: Blob; fileName: string }> => {
+    if (!HAS_API) {
+      throw new ApiError(0, "Backend manzili sozlanmagan (VITE_API_URL bo‘sh).", "no_api");
+    }
+    const res = await fetch(`${API_URL}/api/certificates/${subjectId}/pdf`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      let message = res.statusText || "Sertifikatni yuklab bo‘lmadi";
+      try {
+        const data = JSON.parse(await res.text());
+        const detail = data?.detail;
+        if (typeof detail === "string") message = detail;
+        else if (detail && typeof detail === "object") {
+          message = detail.message_uz ?? message;
+        }
+      } catch {
+        // non-JSON error body — keep the status text
+      }
+      throw new ApiError(res.status, message);
+    }
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const fileName = match ? match[1] : `EduQuest-sertifikat-${subjectId}.pdf`;
+    return { blob: await res.blob(), fileName };
+  },
 
   lesson: (token: string, id: number) => req<LessonDetail>(`/api/lessons/${id}`, { token }),
 

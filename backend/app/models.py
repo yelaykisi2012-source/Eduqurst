@@ -281,6 +281,28 @@ class UserAchievement(Base):
     achievement: Mapped[Achievement] = relationship(back_populates="awarded")
 
 
+class Certificate(Base):
+    """An issued course-completion certificate (one per pupil + subject).
+
+    Names are snapshotted at issue time so later content renames do not change
+    an already issued document. `code` is the unguessable public verify key.
+    """
+
+    __tablename__ = "certificates"
+    __table_args__ = (UniqueConstraint("user_id", "subject_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), index=True)
+    code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    pupil_name: Mapped[str] = mapped_column(String(128))
+    grade_name: Mapped[str] = mapped_column(String(32))
+    subject_name: Mapped[str] = mapped_column(String(128))
+    score_percent: Mapped[int] = mapped_column(Integer, default=0)
+    stars: Mapped[int] = mapped_column(Integer, default=0)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class AdminAccount(Base):
     """Dashboard login (Stage 8). Password stored only as PBKDF2 hash."""
 

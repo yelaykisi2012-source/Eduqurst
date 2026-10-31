@@ -212,6 +212,30 @@ export interface Progress {
   achievements: Achievement[];
 }
 
+/** An issued course-completion certificate (GET /api/certificates). */
+export interface Certificate {
+  code: string;
+  subject_id: number;
+  subject_name: string;
+  grade_name: string;
+  pupil_name: string;
+  score_percent: number;
+  stars: number;
+  issued_at: string;
+  /** Public QR verification page. */
+  verify_url: string;
+}
+
+/** A finished course (GET /api/certificates/eligible); `certificate` set once issued. */
+export interface EligibleCertificate {
+  subject_id: number;
+  subject_name: string;
+  emoji: string;
+  total_lessons: number;
+  score_percent: number;
+  certificate: Certificate | null;
+}
+
 /** Weekly stars league (GET /api/leaderboard). */
 export interface LeaderboardEntry {
   rank: number;
