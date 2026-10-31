@@ -12,6 +12,7 @@ Only published content is visible; locked lessons are listed but flagged
 unlocked=false so the Mini App can show a 🔒 instead of hiding progress.
 """
 import json
+import random
 import urllib.parse
 import urllib.request
 
@@ -29,6 +30,7 @@ from app.models import Lesson, LessonMaterial, LessonProgress, Subject, User
 from app.schemas import (
     LessonDetail,
     LessonSummary,
+    MatchPromptOut,
     MaterialOut,
     QuizOut,
     QuizOptionOut,
@@ -178,13 +180,25 @@ def get_quiz(
     lesson = _accessible_lesson(db, user, lesson_id)
     if not is_lesson_unlocked(db, user.id, lesson):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Bosqich ochilmagan")
-    questions = [
-        QuizQuestionOut(
-            id=q.id, text=q.text, kind=q.kind, image_url=q.image_url,
-            options=[QuizOptionOut(id=o.id, text=o.text) for o in q.options],
+    questions = []
+    for q in lesson.questions:
+        options = list(q.options)
+        prompts: list[MatchPromptOut] = []
+        if q.kind == "matching":
+            # Matching right-hand choices are shuffled (stable per question) so
+            # the admin order never gives the answer away.
+            random.Random(q.id).shuffle(options)
+            prompts = [MatchPromptOut(id=p.id, text=p.text) for p in q.prompts]
+        questions.append(
+            QuizQuestionOut(
+                id=q.id,
+                text=q.text,
+                kind=q.kind,
+                image_url=q.image_url,
+                options=[QuizOptionOut(id=o.id, text=o.text) for o in options],
+                prompts=prompts,
+            )
         )
-        for q in lesson.questions
-    ]
     if not questions:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Bu darsda test hali yo'q")
     # NOTE: correct answers (is_correct) are NEVER sent to the frontend.

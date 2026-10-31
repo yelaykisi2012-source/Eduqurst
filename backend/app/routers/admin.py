@@ -21,13 +21,24 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
-from app.models import AnswerOption, Grade, Lesson, LessonMaterial, Question, Subject, User
+from app.models import (
+    AnswerOption,
+    Grade,
+    Lesson,
+    LessonMaterial,
+    Question,
+    QuestionPrompt,
+    QuizAnswer,
+    Subject,
+    User,
+)
 from app.schemas import (
     AdminLessonCreate,
     AdminLessonOut,
     AdminLessonUpdate,
     AdminMaterialCreate,
     AdminMaterialOut,
+    AdminPairOut,
     AdminQuestionCreate,
     AdminQuestionDetailOut,
     AdminQuestionOptionOut,
@@ -433,17 +444,38 @@ def create_question(
     lesson = db.get(Lesson, lesson_id)
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dars topilmadi")
+    pairs: list[tuple[str, str]] = []
     correct = [o for o in body.options if o.is_correct]
-    if body.kind == "single" and len(correct) != 1:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Bir variant to'g'ri deb belgilanishi kerak",
-        )
-    if body.kind == "text" and len(correct) < 1:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Matnli savolda kamida bitta to'g'ri javob kerak",
-        )
+    if body.kind == "matching":
+        pairs = [(p.left.strip(), p.right.strip()) for p in body.pairs]
+        if not 2 <= len(pairs) <= 6:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Juftlik savolida 2–6 juftlik kerak",
+            )
+        if any(not left or not right for left, right in pairs):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Juftlikning ikkala tomoni ham to'ldirilishi kerak",
+            )
+        if len({left.lower() for left, _ in pairs}) != len(pairs) or len(
+            {right.lower() for _, right in pairs}
+        ) != len(pairs):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Juftliklar takrorlanmasligi kerak",
+            )
+    else:
+        if body.kind == "single" and len(correct) != 1:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Bir variant to'g'ri deb belgilanishi kerak",
+            )
+        if body.kind == "text" and len(correct) < 1:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Matnli savolda kamida bitta to'g'ri javob kerak",
+            )
     next_order = (
         db.scalar(select(func.max(Question.order_index)).where(Question.lesson_id == lesson_id))
         or 0
@@ -451,6 +483,29 @@ def create_question(
     q = Question(lesson_id=lesson_id, text=body.text, kind=body.kind, order_index=next_order)
     db.add(q)
     db.flush()
+    if body.kind == "matching":
+        for i, (left, right) in enumerate(pairs):
+            key = f"p{i + 1}"
+            db.add(
+                QuestionPrompt(
+                    question_id=q.id, text=left, pair_key=key, order_index=i
+                )
+            )
+            db.add(
+                AnswerOption(
+                    question_id=q.id,
+                    text=right,
+                    is_correct=True,  # every right choice is the match of one prompt
+                    feedback="To'g'ri juftlik! 🎉",
+                    order_index=i,
+                    pair_key=key,
+                )
+            )
+        db.commit()
+        return AdminQuestionOut(
+            id=q.id, text=q.text, kind=q.kind,
+            option_count=len(pairs), correct_count=len(pairs),
+        )
     for i, o in enumerate(body.options):
         db.add(AnswerOption(
             question_id=q.id, text=o.text, is_correct=o.is_correct,
@@ -505,18 +560,27 @@ def list_questions(
     lesson = db.get(Lesson, lesson_id)
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dars topilmadi")
-    return [
-        AdminQuestionDetailOut(
-            id=q.id, text=q.text, kind=q.kind,
-            option_count=len(q.options),
-            correct_count=sum(1 for o in q.options if o.is_correct),
-            options=[
-                AdminQuestionOptionOut(id=o.id, text=o.text, is_correct=o.is_correct)
-                for o in q.options
-            ],
+    result: list[AdminQuestionDetailOut] = []
+    for q in lesson.questions:
+        right_by_key = {o.pair_key: o.text for o in q.options if o.pair_key}
+        result.append(
+            AdminQuestionDetailOut(
+                id=q.id,
+                text=q.text,
+                kind=q.kind,
+                option_count=len(q.options),
+                correct_count=sum(1 for o in q.options if o.is_correct),
+                options=[
+                    AdminQuestionOptionOut(id=o.id, text=o.text, is_correct=o.is_correct)
+                    for o in q.options
+                ],
+                pairs=[
+                    AdminPairOut(left=p.text, right=right_by_key.get(p.pair_key, ""))
+                    for p in q.prompts
+                ],
+            )
         )
-        for q in lesson.questions
-    ]
+    return result
 
 
 @router.delete("/questions/{question_id}", status_code=204)
@@ -526,6 +590,13 @@ def delete_question(
     question = db.get(Question, question_id)
     if question is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Savol topilmadi")
+    # Past review rows reference the question; remove them so Postgres FKs pass.
+    for answer in db.scalars(
+        select(QuizAnswer).where(QuizAnswer.question_id == question_id)
+    ).all():
+        db.delete(answer)
+    for prompt in list(question.prompts):
+        db.delete(prompt)
     for option in list(question.options):
         db.delete(option)
     db.delete(question)

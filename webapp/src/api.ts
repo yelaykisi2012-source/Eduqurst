@@ -262,7 +262,12 @@ export const api = {
   adminCreateQuestion: (
     token: string,
     lessonId: number,
-    body: { text: string; kind: string; options: { text: string; is_correct: boolean }[] },
+    body: {
+      text: string;
+      kind: string;
+      options?: { text: string; is_correct: boolean }[];
+      pairs?: { left: string; right: string }[];
+    },
   ) => req<{ id: number }>(`/api/admin/lessons/${lessonId}/questions`, { method: "POST", token, body }),
 
   adminQuestions: (token: string, lessonId: number) =>

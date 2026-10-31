@@ -64,6 +64,13 @@ export interface AdminQuestionDetail {
   option_count: number;
   correct_count: number;
   options: AdminQuestionOption[];
+  /** Only for kind="matching". */
+  pairs: AdminPair[];
+}
+
+export interface AdminPair {
+  left: string;
+  right: string;
 }
 
 export interface LessonSummary {
@@ -150,9 +157,16 @@ export interface Quiz {
 export interface QuizQuestion {
   id: number;
   text: string;
-  kind: string; // single | text | image
+  kind: string; // single | text | image | matching
   image_url: string | null;
   options: QuizOption[];
+  /** Left-hand items of a "matching" question (right choices are `options`). */
+  prompts: MatchPrompt[];
+}
+
+export interface MatchPrompt {
+  id: number;
+  text: string;
 }
 
 export interface QuizOption {

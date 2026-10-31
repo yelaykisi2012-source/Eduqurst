@@ -159,7 +159,8 @@ class Question(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     lesson_id: Mapped[int] = mapped_column(ForeignKey("lessons.id"), index=True)
     text: Mapped[str] = mapped_column(Text)
-    kind: Mapped[str] = mapped_column(String(16), default="single")  # single|text|image
+    # single | text | image | matching
+    kind: Mapped[str] = mapped_column(String(16), default="single")
     image_url: Mapped[str | None] = mapped_column(String(512))
     order_index: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -167,6 +168,28 @@ class Question(Base):
     options: Mapped[list[AnswerOption]] = relationship(
         back_populates="question", order_by="AnswerOption.order_index"
     )
+    prompts: Mapped[list[QuestionPrompt]] = relationship(
+        back_populates="question", order_by="QuestionPrompt.order_index"
+    )
+
+
+class QuestionPrompt(Base):
+    """Left-hand item of a matching question ("matching" kind).
+
+    The matching right-hand choices live in AnswerOption and carry the same
+    `pair_key`, so the two ids are independent and the correct pair can never
+    be inferred from the ids sent to the pupil.
+    """
+
+    __tablename__ = "question_prompts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id"), index=True)
+    text: Mapped[str] = mapped_column(String(255))
+    pair_key: Mapped[str] = mapped_column(String(32))
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+    question: Mapped[Question] = relationship(back_populates="prompts")
 
 
 class AnswerOption(Base):
@@ -178,6 +201,8 @@ class AnswerOption(Base):
     is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
     feedback: Mapped[str] = mapped_column(String(255), default="")  # supportive hint
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+    # For "matching": which QuestionPrompt this right-hand choice belongs to.
+    pair_key: Mapped[str | None] = mapped_column(String(32))
 
     question: Mapped[Question] = relationship(back_populates="options")
 

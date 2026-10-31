@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -311,6 +312,19 @@ async def _render_question(
     header = f"🧪 <b>{esc(quiz_title)}</b>\nSavol {index + 1}/{len(questions)}:"
     if q["kind"] == "text":
         await target.answer(f"{header}\n{esc(q['text'])}\n\n✍️ Javobingizni matn bilan yuboring:")
+    elif q["kind"] == "matching":
+        prompts = q.get("prompts") or []
+        options = q.get("options") or []
+        left = "\n".join(f"{i}. {esc(p['text'])}" for i, p in enumerate(prompts, start=1))
+        right = "\n".join(
+            f"{chr(ord('A') + j)}. {esc(o['text'])}" for j, o in enumerate(options)
+        )
+        await target.answer(
+            f"{header}\n{esc(q['text'])}\n\n"
+            f"🧩 <b>Chap elementlar</b>\n{left}\n\n"
+            f"🔤 <b>O‘ng variantlar</b>\n{right}\n\n"
+            "📝 Har birini juftlang va shunday yozing: <code>1-b, 2-a</code>"
+        )
     else:
         await target.answer(
             f"{header}\n{esc(q['text'])}",
@@ -338,6 +352,39 @@ async def cb_quiz(cb: CallbackQuery, state: FSMContext) -> None:
 
 def _answers_payload(answers: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"question_id": int(qid), **val} for qid, val in answers.items()]
+
+
+_MATCH_PAIR_RE = re.compile(r"(\d+)\s*[-\u2013\u2014.:=)]?\s*([a-zA-Z])")
+
+
+def parse_matches(
+    text: str, prompts: list[dict], options: list[dict]
+) -> tuple[list[dict], str]:
+    """Parse a free-text matching answer like "1-b, 2-a".
+
+    Returns (pairs, error). When the answer is invalid pairs is empty and
+    error holds a short Uzbek hint; the pupil can simply retype it (the FSM
+    state is untouched, so nothing is submitted by mistake).
+    """
+    found = _MATCH_PAIR_RE.findall(str(text or ""))
+    if not found:
+        return [], "Namunadagidek yozing: 1-b, 2-a"
+    pairs: list[dict] = []
+    used_prompts: set[int] = set()
+    used_options: set[int] = set()
+    for number, letter in found:
+        i = int(number) - 1
+        j = ord(letter.upper()) - ord("A")
+        if not (0 <= i < len(prompts)) or not (0 <= j < len(options)):
+            return [], "Bunday raqam yoki harf yo‘q — ro‘yxatdagi qiymatlarni yozing."
+        if i in used_prompts or j in used_options:
+            return [], "Har bir element faqat bir marta ishlatiladi."
+        used_prompts.add(i)
+        used_options.add(j)
+        pairs.append({"prompt_id": prompts[i]["id"], "option_id": options[j]["id"]})
+    if len(pairs) != len(prompts):
+        return [], "Barcha chap elementlarni bog‘lang — hammasi javobda bo‘lsin."
+    return pairs, ""
 
 
 async def _finish_quiz(
@@ -447,11 +494,20 @@ async def msg_text_answer(message: Message, state: FSMContext) -> None:
         )
         return
     q = questions[index]
-    if q["kind"] != "text":
+    answers = data.get("answers") or {}
+    if q["kind"] == "matching":
+        pairs, hint = parse_matches(
+            message.text or "", q.get("prompts") or [], q.get("options") or []
+        )
+        if hint:
+            await message.answer(f"🤔 {esc(hint)}")
+            return
+        answers[str(q["id"])] = {"pairs": pairs}
+    elif q["kind"] == "text":
+        answers[str(q["id"])] = {"text": message.text.strip()[:255]}
+    else:
         await message.answer("👆 Bu savolga quyidagi variant tugmalaridan birini bosib javob bering.")
         return
-    answers = data.get("answers") or {}
-    answers[str(q["id"])] = {"text": message.text.strip()[:255]}
     nxt = index + 1
     if nxt >= len(questions):
         await _finish_quiz(message, state, data["lesson_id"], answers, message.from_user.id)

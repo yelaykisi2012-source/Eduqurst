@@ -679,6 +679,11 @@ interface OptionRow {
   is_correct: boolean;
 }
 
+interface PairRow {
+  left: string;
+  right: string;
+}
+
 function QuestionForm({
   token,
   lessonId,
@@ -689,10 +694,14 @@ function QuestionForm({
   onDone: () => Promise<void> | void;
 }) {
   const [text, setText] = useState("");
-  const [kind, setKind] = useState<"single" | "text">("single");
+  const [kind, setKind] = useState<"single" | "text" | "matching">("single");
   const [options, setOptions] = useState<OptionRow[]>([
     { text: "", is_correct: true },
     { text: "", is_correct: false },
+  ]);
+  const [pairs, setPairs] = useState<PairRow[]>([
+    { left: "", right: "" },
+    { left: "", right: "" },
   ]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -700,16 +709,31 @@ function QuestionForm({
   const setOption = (i: number, patch: Partial<OptionRow>) =>
     setOptions((prev) => prev.map((o, j) => (j === i ? { ...o, ...patch } : o)));
 
+  const setPair = (i: number, patch: Partial<PairRow>) =>
+    setPairs((prev) => prev.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+
   /** single -> radio (exactly one correct); text -> checkbox (>=1 correct). */
   const markCorrect = (i: number) => {
     if (kind === "single") setOptions((prev) => prev.map((o, j) => ({ ...o, is_correct: j === i })));
     else setOptions((prev) => prev.map((o, j) => (j === i ? { ...o, is_correct: !o.is_correct } : o)));
   };
 
+  const cleanPairs = pairs.map((p) => ({
+    left: p.left.trim(),
+    right: p.right.trim(),
+  }));
+  const pairsReady =
+    cleanPairs.length >= 2 &&
+    cleanPairs.every((p) => p.left.length > 0 && p.right.length > 0) &&
+    new Set(cleanPairs.map((p) => p.left.toLowerCase())).size === cleanPairs.length &&
+    new Set(cleanPairs.map((p) => p.right.toLowerCase())).size === cleanPairs.length;
+
   const ready =
     text.trim().length >= 3 &&
-    options.every((o) => o.text.trim().length > 0) &&
-    options.some((o) => o.is_correct);
+    (kind === "matching"
+      ? pairsReady
+      : options.every((o) => o.text.trim().length > 0) &&
+        options.some((o) => o.is_correct));
 
   const submit = async () => {
     setBusy(true);
@@ -718,7 +742,14 @@ function QuestionForm({
       await api.adminCreateQuestion(token, lessonId, {
         text: text.trim(),
         kind,
-        options: options.map((o) => ({ text: o.text.trim(), is_correct: o.is_correct })),
+        ...(kind === "matching"
+          ? { pairs: cleanPairs }
+          : {
+              options: options.map((o) => ({
+                text: o.text.trim(),
+                is_correct: o.is_correct,
+              })),
+            }),
       });
       await onDone();
     } catch (e) {
@@ -738,7 +769,8 @@ function QuestionForm({
         {(
           [
             ["single", "🔘 Bir variantli"],
-            ["text", "⌨️ Matnli (yozib javob)"],
+            ["text", "⌨️ Matnli"],
+            ["matching", "🧩 Juftlik"],
           ] as const
         ).map(([k, lbl]) => (
           <button
@@ -758,6 +790,59 @@ function QuestionForm({
         ))}
       </div>
 
+      {kind === "matching" ? (
+        <>
+          <label className={label}>Juftliklar — chap va o‘ng elementlar (2–6 ta)</label>
+          <p className="mb-1.5 text-[11px] text-slate-500">
+            O‘quvchi chapdagi har bir elementni o‘ngdagi mos javob bilan bog‘laydi.
+          </p>
+          <div className="space-y-1.5">
+            {pairs.map((p, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <span className="w-5 shrink-0 text-center text-xs font-bold text-slate-400">
+                  {i + 1}
+                </span>
+                <input
+                  className={input}
+                  value={p.left}
+                  onChange={(e) => setPair(i, { left: e.target.value })}
+                  placeholder={`Chap ${i + 1}`}
+                />
+                <span className="shrink-0 text-xs font-bold text-slate-400">→</span>
+                <input
+                  className={input}
+                  value={p.right}
+                  onChange={(e) => setPair(i, { right: e.target.value })}
+                  placeholder={`O‘ng ${i + 1}`}
+                />
+                {pairs.length > 2 && (
+                  <button
+                    onClick={() => setPairs((prev) => prev.filter((_, j) => j !== i))}
+                    className="shrink-0 text-slate-400 hover:text-rose-500"
+                    title="O‘chirish"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          {pairs.length < 6 && (
+            <button
+              onClick={() => setPairs((prev) => [...prev, { left: "", right: "" }])}
+              className="mt-2 text-xs font-bold text-blue-500 hover:underline"
+            >
+              + Juftlik qo‘shish
+            </button>
+          )}
+          {!pairsReady && pairs.some((p) => p.left.trim() || p.right.trim()) && (
+            <p className="mt-1.5 text-[11px] font-semibold text-amber-600">
+              Har bir qatorda chap va o‘ng qiymat bo‘lishi, takrorlanmasligi kerak.
+            </p>
+          )}
+        </>
+      ) : (
+        <>
       <label className={label}>
         Javob variantlari — {kind === "single" ? "bittasi to‘g‘ri" : "to‘g‘ri javob(lar) belgilang"}
       </label>
@@ -800,6 +885,8 @@ function QuestionForm({
         >
           + Variant qo‘shish
         </button>
+      )}
+        </>
       )}
 
       {err && <p className="mt-2 text-xs font-semibold text-rose-600">{err}</p>}
@@ -1169,18 +1256,25 @@ function QuestionList({
               <ConfirmDelete busy={busyId === q.id} onConfirm={() => void remove(q.id)} />
             </div>
             <ul className="mt-1 space-y-0.5">
-              {q.options.map((o) => (
-                <li
-                  key={o.id}
-                  className={
-                    o.is_correct
-                      ? "text-[11px] font-bold text-emerald-600"
-                      : "text-[11px] text-slate-500"
-                  }
-                >
-                  {o.is_correct ? "✓" : "•"} {o.text}
-                </li>
-              ))}
+              {q.kind === "matching"
+                ? q.pairs.map((p, pi) => (
+                    <li key={pi} className="text-[11px] text-slate-500">
+                      <span className="font-bold text-slate-700">{p.left}</span> →{" "}
+                      <span className="font-bold text-emerald-600">{p.right}</span>
+                    </li>
+                  ))
+                : q.options.map((o) => (
+                    <li
+                      key={o.id}
+                      className={
+                        o.is_correct
+                          ? "text-[11px] font-bold text-emerald-600"
+                          : "text-[11px] text-slate-500"
+                      }
+                    >
+                      {o.is_correct ? "✓" : "•"} {o.text}
+                    </li>
+                  ))}
             </ul>
           </div>
         ))}

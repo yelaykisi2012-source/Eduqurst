@@ -8,6 +8,8 @@ Rules implemented here:
 - passing unlocks the next level (unlock logic in gamification.is_lesson_unlocked);
 - failing never punishes: supportive message + free retry.
 """
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -81,6 +83,28 @@ def submit_quiz(
             expected = next((o.text for o in question.options if o.is_correct), "")
             text_answer = (ans.text or "").strip() if ans else ""
             is_correct = bool(expected) and text_answer.lower() == expected.strip().lower()
+        elif question.kind == "matching":
+            prompts = {p.id: p for p in question.prompts}
+            options_by_id = {o.id: o for o in question.options}
+            picked: dict[int, int] = {}
+            for pair in ans.pairs if ans else []:
+                if (
+                    pair.prompt_id in prompts
+                    and pair.option_id in options_by_id
+                    and pair.prompt_id not in picked
+                ):
+                    picked[pair.prompt_id] = pair.option_id
+            is_correct = (
+                bool(prompts)
+                and len(picked) == len(prompts)
+                # one right-hand choice can only serve a single prompt
+                and len(set(picked.values())) == len(picked)
+                and all(
+                    options_by_id[option_id].pair_key == prompts[prompt_id].pair_key
+                    for prompt_id, option_id in picked.items()
+                )
+            )
+            text_answer = json.dumps(picked) if picked else ""
         else:
             option = db.get(AnswerOption, ans.option_id) if ans and ans.option_id else None
             if option is not None and option.question_id == question.id:
@@ -212,15 +236,19 @@ def _mistakes(db: Session, attempt: QuizAttempt) -> list[MistakeOut]:
         question = questions.get(row.question_id)
         if question is None:
             continue
-        correct_options = [o.text for o in question.options if o.is_correct]
-        explanation = next(
-            (o.feedback for o in question.options if o.is_correct and o.feedback), ""
-        )
-        your_answer = ""
-        if row.option_id and row.option_id in chosen:
-            your_answer = chosen[row.option_id].text
-        elif row.text_answer:
-            your_answer = row.text_answer
+        if question.kind == "matching":
+            your_answer, correct_answer, explanation = _matching_review(question, row)
+        else:
+            correct_options = [o.text for o in question.options if o.is_correct]
+            explanation = next(
+                (o.feedback for o in question.options if o.is_correct and o.feedback), ""
+            )
+            your_answer = ""
+            if row.option_id and row.option_id in chosen:
+                your_answer = chosen[row.option_id].text
+            elif row.text_answer:
+                your_answer = row.text_answer
+            correct_answer = " / ".join(correct_options)
         items.append(
             (
                 question.order_index,
@@ -229,10 +257,39 @@ def _mistakes(db: Session, attempt: QuizAttempt) -> list[MistakeOut]:
                     question_text=question.text,
                     kind=question.kind,
                     your_answer=your_answer,
-                    correct_answer=" / ".join(correct_options),
+                    correct_answer=correct_answer,
                     explanation=explanation,
                 ),
             )
         )
     items.sort(key=lambda pair: pair[0])
     return [mistake for _, mistake in items]
+
+
+def _matching_review(
+    question: Question, row: QuizAnswer
+) -> tuple[str, str, str]:
+    """Readable left→right review for a wrong matching answer."""
+    option_text = {o.id: o.text for o in question.options}
+    try:
+        picked = {
+            int(prompt_id): int(option_id)
+            for prompt_id, option_id in json.loads(row.text_answer or "{}").items()
+        }
+    except (TypeError, ValueError, json.JSONDecodeError):
+        picked = {}
+    your_parts = [
+        f"{prompt.text} → {option_text.get(picked[prompt.id], '?')}"
+        for prompt in question.prompts
+        if prompt.id in picked
+    ]
+    right_by_key = {o.pair_key: o.text for o in question.options if o.pair_key}
+    correct_parts = [
+        f"{prompt.text} → {right_by_key.get(prompt.pair_key, '?')}"
+        for prompt in question.prompts
+    ]
+    return (
+        "; ".join(your_parts) or "javob berilmagan",
+        "; ".join(correct_parts),
+        "Har bir chap elementni o‘z jufti bilan bog‘lang.",
+    )

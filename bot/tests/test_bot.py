@@ -531,5 +531,129 @@ class QuizMistakeReviewTests(unittest.TestCase):
         self.assertIn("Kichik son chapda turadi.", text)
 
 
+class MatchingQuestionTests(unittest.TestCase):
+    """kind="matching" questions: numbered prompts, lettered options, typed map."""
+
+    PROMPTS = [{"id": 201, "text": "Olma"}, {"id": 202, "text": "Banan"}]
+    OPTIONS = [{"id": 101, "text": "Banana"}, {"id": 102, "text": "Apple"}]
+
+    def test_parse_accepts_common_formats(self):
+        for raw in ("1-b, 2-a", "1 B 2 A", "1=b;2–a", "1-b 2-a"):
+            pairs, hint = learn_handlers.parse_matches(raw, self.PROMPTS, self.OPTIONS)
+            self.assertEqual(hint, "", raw)
+            self.assertEqual(
+                pairs,
+                [
+                    {"prompt_id": 201, "option_id": 102},
+                    {"prompt_id": 202, "option_id": 101},
+                ],
+                raw,
+            )
+
+    def test_parse_rejects_duplicates(self):
+        pairs, hint = learn_handlers.parse_matches("1-a, 2-a", self.PROMPTS, self.OPTIONS)
+        self.assertEqual(pairs, [])
+        self.assertIn("bir marta", hint)
+
+    def test_parse_requires_every_prompt(self):
+        pairs, hint = learn_handlers.parse_matches("1-b", self.PROMPTS, self.OPTIONS)
+        self.assertEqual(pairs, [])
+        self.assertIn("Barcha", hint)
+
+    def test_parse_rejects_out_of_range(self):
+        pairs, hint = learn_handlers.parse_matches("1-b, 3-a", self.PROMPTS, self.OPTIONS)
+        self.assertEqual(pairs, [])
+        self.assertIn("yo‘q", hint)
+
+    def test_render_shows_numbered_prompts_and_lettered_options(self):
+        target = AsyncMock()
+        state = AsyncMock()
+        question = {
+            "id": 7,
+            "kind": "matching",
+            "text": "Juftlang",
+            "prompts": self.PROMPTS,
+            "options": self.OPTIONS,
+        }
+        asyncio.run(
+            learn_handlers._render_question(target, [question], 3, 0, {}, state=state)
+        )
+        text = target.answer.await_args.args[0]
+        self.assertIn("1. Olma", text)
+        self.assertIn("2. Banan", text)
+        self.assertIn("A. Banana", text)
+        self.assertIn("B. Apple", text)
+        self.assertIn("1-b, 2-a", text)
+        # No inline option buttons: matching is answered by typing a mapping.
+        self.assertNotIn("reply_markup", target.answer.await_args.kwargs)
+
+    def test_typed_answer_becomes_pairs(self):
+        question = {
+            "id": 7,
+            "kind": "matching",
+            "text": "Juftlang",
+            "prompts": self.PROMPTS,
+            "options": self.OPTIONS,
+        }
+        message = SimpleNamespace(
+            text="1-b, 2-a",
+            from_user=SimpleNamespace(id=999000222),
+            answer=AsyncMock(),
+        )
+        state = AsyncMock()
+        state.get_data = AsyncMock(
+            return_value={
+                "lesson_id": 3,
+                "questions": [question],
+                "index": 0,
+                "answers": {},
+                "quiz_title": "Test",
+            }
+        )
+        with patch.object(
+            learn_handlers, "_finish_quiz", new=AsyncMock()
+        ) as finish:
+            asyncio.run(learn_handlers.msg_text_answer(message, state))
+        finish.assert_awaited_once()
+        answers = finish.await_args.args[3]
+        self.assertEqual(
+            answers["7"]["pairs"],
+            [
+                {"prompt_id": 201, "option_id": 102},
+                {"prompt_id": 202, "option_id": 101},
+            ],
+        )
+
+    def test_invalid_typed_answer_keeps_quiz_running(self):
+        question = {
+            "id": 7,
+            "kind": "matching",
+            "text": "Juftlang",
+            "prompts": self.PROMPTS,
+            "options": self.OPTIONS,
+        }
+        message = SimpleNamespace(
+            text="bilmayman",
+            from_user=SimpleNamespace(id=999000222),
+            answer=AsyncMock(),
+        )
+        state = AsyncMock()
+        state.get_data = AsyncMock(
+            return_value={
+                "lesson_id": 3,
+                "questions": [question],
+                "index": 0,
+                "answers": {},
+                "quiz_title": "Test",
+            }
+        )
+        with patch.object(
+            learn_handlers, "_finish_quiz", new=AsyncMock()
+        ) as finish:
+            asyncio.run(learn_handlers.msg_text_answer(message, state))
+        finish.assert_not_awaited()
+        self.assertIn("1-b, 2-a", message.answer.await_args.args[0])
+
+
 if __name__ == "__main__":
     unittest.main()

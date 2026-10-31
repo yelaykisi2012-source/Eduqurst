@@ -219,10 +219,17 @@ class AdminOptionCreate(BaseModel):
     is_correct: bool = False
 
 
+class AdminPairCreate(BaseModel):
+    left: str = Field(min_length=1, max_length=120)
+    right: str = Field(min_length=1, max_length=120)
+
+
 class AdminQuestionCreate(BaseModel):
     text: str = Field(min_length=3, max_length=1000)
-    kind: str = Field(default="single", pattern="^(single|text)$")
-    options: list[AdminOptionCreate] = Field(min_length=1, max_length=6)
+    kind: str = Field(default="single", pattern="^(single|text|matching)$")
+    options: list[AdminOptionCreate] = Field(default_factory=list, max_length=6)
+    # Only for kind="matching": the left→right pairs (rights become options).
+    pairs: list[AdminPairCreate] = Field(default_factory=list, max_length=6)
 
 
 class AdminQuestionOut(BaseModel):
@@ -239,10 +246,16 @@ class AdminQuestionOptionOut(BaseModel):
     is_correct: bool
 
 
+class AdminPairOut(BaseModel):
+    left: str
+    right: str
+
+
 class AdminQuestionDetailOut(AdminQuestionOut):
     """Admin-only view: includes which option is correct (never sent to pupils)."""
 
     options: list[AdminQuestionOptionOut]
+    pairs: list[AdminPairOut] = Field(default_factory=list)
 
 
 # ---------- content ----------
@@ -294,12 +307,20 @@ class QuizOptionOut(BaseModel):
     text: str
 
 
+class MatchPromptOut(BaseModel):
+    """Left-hand item of a matching question (right choices are `options`)."""
+
+    id: int
+    text: str
+
+
 class QuizQuestionOut(BaseModel):
     id: int
     text: str
     kind: str
     image_url: str | None
     options: list[QuizOptionOut]
+    prompts: list[MatchPromptOut] = Field(default_factory=list)
 
 
 class QuizOut(BaseModel):
@@ -310,10 +331,16 @@ class QuizOut(BaseModel):
 
 
 # ---------- quiz submit ----------
+class MatchPairIn(BaseModel):
+    prompt_id: int
+    option_id: int
+
+
 class AnswerIn(BaseModel):
     question_id: int
     option_id: int | None = None
     text: str | None = None
+    pairs: list[MatchPairIn] = Field(default_factory=list)
 
 
 class QuizSubmitRequest(BaseModel):

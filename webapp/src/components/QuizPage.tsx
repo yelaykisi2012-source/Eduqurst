@@ -30,6 +30,8 @@ export default function QuizPage({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number>>({}); // question_id -> option_id
   const [texts, setTexts] = useState<Record<number, string>>({}); // question_id -> typed answer
+  // question_id -> prompt_id -> option_id (matching questions)
+  const [matches, setMatches] = useState<Record<number, Record<number, number>>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -76,18 +78,39 @@ export default function QuizPage({
   const isLast = currentIndex === questions.length - 1;
 
   // Question answering status
-  const isQuestionAnswered = (qId: number, kind: string) => {
-    if (kind === "text") return (texts[qId] ?? "").trim().length > 0;
-    return answers[qId] !== undefined;
+  const isQuestionAnswered = (q: (typeof questions)[number]) => {
+    if (q.kind === "text") return (texts[q.id] ?? "").trim().length > 0;
+    if (q.kind === "matching") {
+      const assigned = matches[q.id] ?? {};
+      return q.prompts.length > 0 && q.prompts.every((p) => assigned[p.id] !== undefined);
+    }
+    return answers[q.id] !== undefined;
   };
 
-  const answeredCount = questions.filter((q) => isQuestionAnswered(q.id, q.kind)).length;
+  const answeredCount = questions.filter(isQuestionAnswered).length;
   const allAnswered = answeredCount === questions.length;
   const progressPercent = Math.round(((currentIndex + 1) / questions.length) * 100);
 
   const handleSelectOption = (optionId: number) => {
     window.Telegram?.WebApp?.HapticFeedback?.selectionChanged();
     setAnswers((prev) => ({ ...prev, [currentQuestion.id]: optionId }));
+  };
+
+  /** One right-hand choice can be used by a single prompt: reassigning moves it. */
+  const handleMatch = (promptId: number, optionId: number | null) => {
+    window.Telegram?.WebApp?.HapticFeedback?.selectionChanged();
+    setMatches((prev) => {
+      const forQuestion = { ...(prev[currentQuestion.id] ?? {}) };
+      if (optionId == null) {
+        delete forQuestion[promptId];
+      } else {
+        for (const [pid, oid] of Object.entries(forQuestion)) {
+          if (oid === optionId) delete forQuestion[Number(pid)];
+        }
+        forQuestion[promptId] = optionId;
+      }
+      return { ...prev, [currentQuestion.id]: forQuestion };
+    });
   };
 
   const handleSubmit = async () => {
@@ -98,11 +121,22 @@ export default function QuizPage({
       window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("warning");
       const result = await api.submitQuiz(token, lessonId, {
         idempotency_key: crypto.randomUUID(),
-        answers: questions.map((q) =>
-          q.kind === "text"
-            ? { question_id: q.id, text: (texts[q.id] ?? "").trim() }
-            : { question_id: q.id, option_id: answers[q.id] },
-        ),
+        answers: questions.map((q) => {
+          if (q.kind === "text") {
+            return { question_id: q.id, text: (texts[q.id] ?? "").trim() };
+          }
+          if (q.kind === "matching") {
+            const assigned = matches[q.id] ?? {};
+            return {
+              question_id: q.id,
+              pairs: q.prompts.map((p) => ({
+                prompt_id: p.id,
+                option_id: assigned[p.id],
+              })),
+            };
+          }
+          return { question_id: q.id, option_id: answers[q.id] };
+        }),
       });
       onResult(result);
     } catch (e) {
@@ -179,6 +213,61 @@ export default function QuizPage({
               placeholder="Javobni yozing…"
               className="w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10"
             />
+          </div>
+        ) : currentQuestion.kind === "matching" ? (
+          <div className="mt-4 space-y-2.5">
+            <p className="text-[11px] sm:text-xs font-semibold text-slate-500">
+              Har bir chap element uchun mos o‘ng javobni tanlang.
+            </p>
+            {currentQuestion.prompts.map((prompt, promptIndex) => {
+              const selected = matches[currentQuestion.id]?.[prompt.id];
+              return (
+                <div
+                  key={prompt.id}
+                  className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-2xl border border-slate-100 bg-white p-3"
+                >
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700 font-black text-xs">
+                      {promptIndex + 1}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-800 break-words">
+                      {prompt.text}
+                    </span>
+                  </div>
+                  <select
+                    value={selected ?? ""}
+                    onChange={(e) =>
+                      handleMatch(
+                        prompt.id,
+                        e.target.value ? Number(e.target.value) : null,
+                      )
+                    }
+                    className={`w-full sm:w-48 shrink-0 rounded-xl border-2 px-3 py-2 text-sm font-semibold outline-none transition-colors cursor-pointer ${
+                      selected !== undefined
+                        ? "border-emerald-300 bg-emerald-50/60 text-emerald-900"
+                        : "border-slate-200 bg-white text-slate-600 focus:border-blue-500"
+                    }`}
+                  >
+                    <option value="">Tanlang…</option>
+                    {currentQuestion.options.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.text}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+            {Object.keys(matches[currentQuestion.id] ?? {}).length > 0 && (
+              <button
+                onClick={() =>
+                  setMatches((prev) => ({ ...prev, [currentQuestion.id]: {} }))
+                }
+                className="text-[11px] font-bold text-slate-400 hover:text-rose-500 hover:underline cursor-pointer"
+              >
+                Tanlovni tozalash
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-3 mt-4">
@@ -277,7 +366,7 @@ export default function QuizPage({
         </p>
         <div className="flex flex-wrap items-center justify-center gap-2">
           {questions.map((q, idx) => {
-            const isAnswered = isQuestionAnswered(q.id, q.kind);
+            const isAnswered = isQuestionAnswered(q);
             const isCurrent = idx === currentIndex;
 
             return (
