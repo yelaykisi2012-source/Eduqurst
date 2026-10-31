@@ -80,6 +80,7 @@ export default function LessonPage({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [justEarned, setJustEarned] = useState(false);
+  const [earnedTitles, setEarnedTitles] = useState<string[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -100,6 +101,7 @@ export default function LessonPage({
       const r = await api.markViewed(token, lessonId);
       setLesson((l) => (l ? { ...l, viewed: true } : l));
       if (r.stars_granted) setJustEarned(true);
+      setEarnedTitles(r.new_achievement_titles ?? []);
       onViewed();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Xatolik");
@@ -162,6 +164,11 @@ export default function LessonPage({
             <p className="text-center text-sm font-semibold text-emerald-600">
               {justEarned ? "Barakalla! +⭐ qo'shib olindi" : "Bu dars o'qilgan ✅"}
             </p>
+            {earnedTitles.length > 0 && (
+              <p className="text-center text-sm font-semibold text-amber-600">
+                🏆 Yangi yutuq: {earnedTitles.join(", ")}
+              </p>
+            )}
             <button
               onClick={onStartQuiz}
               className="w-full rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 px-4 py-4 text-center text-base font-bold text-white shadow-md transition-transform active:scale-95"

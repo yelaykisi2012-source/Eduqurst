@@ -48,14 +48,21 @@ def stars_total(db: Session, user_id: int) -> int:
 
 
 def is_lesson_unlocked(db: Session, user_id: int, lesson: Lesson) -> bool:
-    """Level 1 is open; level N opens when level N-1 is passed."""
+    """First published level is open; the next opens when the previous one passes.
+
+    We look at the closest PUBLISHED lesson before this one, so an admin can
+    archive a middle lesson without locking everything that follows forever.
+    """
     if lesson.level_order <= 1:
         return True
     prev = db.scalar(
-        select(Lesson).where(
+        select(Lesson)
+        .where(
             Lesson.subject_id == lesson.subject_id,
-            Lesson.level_order == lesson.level_order - 1,
+            Lesson.level_order < lesson.level_order,
+            Lesson.is_published.is_(True),
         )
+        .order_by(Lesson.level_order.desc())
     )
     if prev is None:
         return True

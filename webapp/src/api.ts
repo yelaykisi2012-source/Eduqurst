@@ -12,6 +12,7 @@
  */
 import type {
   AdminLesson,
+  AdminQuestionDetail,
   AdminSubject,
   Grade,
   GradeOverview,
@@ -101,10 +102,12 @@ export const api = {
   lesson: (token: string, id: number) => req<LessonDetail>(`/api/lessons/${id}`, { token }),
 
   markViewed: (token: string, id: number) =>
-    req<{ ok: boolean; stars_granted: boolean; new_achievements: string[] }>(
-      `/api/lessons/${id}/viewed`,
-      { method: "POST", token },
-    ),
+    req<{
+      ok: boolean;
+      stars_granted: boolean;
+      new_achievements: string[];
+      new_achievement_titles: string[];
+    }>(`/api/lessons/${id}/viewed`, { method: "POST", token }),
 
   quiz: (token: string, id: number) => req<Quiz>(`/api/lessons/${id}/quiz`, { token }),
 
@@ -126,12 +129,45 @@ export const api = {
   adminLessons: (token: string, subjectId: number) =>
     req<AdminLesson[]>(`/api/admin/subjects/${subjectId}/lessons`, { token }),
 
+  adminUpdateSubject: (
+    token: string,
+    subjectId: number,
+    body: { name?: string; emoji?: string; is_published?: boolean },
+  ) => req<AdminSubject>(`/api/admin/subjects/${subjectId}`, { method: "PATCH", token, body }),
+
+  adminUpdateLesson: (
+    token: string,
+    lessonId: number,
+    body: {
+      title?: string;
+      explanation?: string;
+      stars_reward?: number;
+      pass_threshold_percent?: number;
+      is_published?: boolean;
+    },
+  ) => req<AdminLesson>(`/api/admin/lessons/${lessonId}`, { method: "PATCH", token, body }),
+
+  adminLesson: (token: string, lessonId: number) =>
+    req<AdminLesson>(`/api/admin/lessons/${lessonId}`, { token }),
+
   adminCreateQuestion: (
     token: string,
     lessonId: number,
     body: { text: string; kind: string; options: { text: string; is_correct: boolean }[] },
   ) => req<{ id: number }>(`/api/admin/lessons/${lessonId}/questions`, { method: "POST", token, body }),
 
+  adminQuestions: (token: string, lessonId: number) =>
+    req<AdminQuestionDetail[]>(`/api/admin/lessons/${lessonId}/questions`, { token }),
+
+  adminDeleteQuestion: (token: string, questionId: number) =>
+    req<null>(`/api/admin/questions/${questionId}`, { method: "DELETE", token }),
+
+  adminMaterials: (token: string, lessonId: number) =>
+    req<Material[]>(`/api/admin/lessons/${lessonId}/materials`, { token }),
+
   adminCreateMaterial: (token: string, lessonId: number, body: MaterialCreate) =>
     req<Material>(`/api/admin/lessons/${lessonId}/materials`, { method: "POST", token, body }),
+
+  adminDeleteMaterial: (token: string, materialId: number) =>
+    req<null>(`/api/admin/materials/${materialId}`, { method: "DELETE", token }),
 };

@@ -57,6 +57,15 @@ class AdminSubjectOut(BaseModel):
     emoji: str
     grade_id: int
     lesson_count: int
+    is_published: bool = True
+
+
+class AdminSubjectUpdate(BaseModel):
+    """Partial update — only the sent fields change."""
+
+    name: str | None = Field(default=None, min_length=2, max_length=64)
+    emoji: str | None = Field(default=None, max_length=8)
+    is_published: bool | None = None
 
 
 class GradeOverview(BaseModel):
@@ -72,6 +81,16 @@ class AdminLessonCreate(BaseModel):
     pass_threshold_percent: int = Field(default=60, ge=10, le=100)
 
 
+class AdminLessonUpdate(BaseModel):
+    """Partial update of a lesson, including publish/unpublish."""
+
+    title: str | None = Field(default=None, min_length=2, max_length=160)
+    explanation: str | None = Field(default=None, min_length=10)
+    stars_reward: int | None = Field(default=None, ge=1, le=50)
+    pass_threshold_percent: int | None = Field(default=None, ge=10, le=100)
+    is_published: bool | None = None
+
+
 class AdminLessonOut(BaseModel):
     id: int
     title: str
@@ -79,6 +98,10 @@ class AdminLessonOut(BaseModel):
     subject_name: str
     question_count: int
     material_count: int = 0
+    explanation: str = ""
+    stars_reward: int = 5
+    pass_threshold_percent: int = 60
+    is_published: bool = True
 
 
 class AdminMaterialCreate(BaseModel):
@@ -118,6 +141,18 @@ class AdminQuestionOut(BaseModel):
     kind: str
     option_count: int
     correct_count: int
+
+
+class AdminQuestionOptionOut(BaseModel):
+    id: int
+    text: str
+    is_correct: bool
+
+
+class AdminQuestionDetailOut(AdminQuestionOut):
+    """Admin-only view: includes which option is correct (never sent to pupils)."""
+
+    options: list[AdminQuestionOptionOut]
 
 
 # ---------- content ----------
@@ -204,6 +239,7 @@ class QuizSubmitResult(BaseModel):
     next_level_unlocked: bool
     message_uz: str
     new_achievements: list[str]
+    new_achievement_titles: list[str] = []
     duplicate: bool  # True if this idempotency_key was already processed
 
 

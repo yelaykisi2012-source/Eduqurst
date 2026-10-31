@@ -150,7 +150,14 @@ async def _ask_grade(cb: CallbackQuery, state: FSMContext, flow: str, question: 
 async def adm_grade_chosen(cb: CallbackQuery, state: FSMContext) -> None:
     await cb.answer()  # stop the spinner immediately — API calls follow
     data = await state.get_data()
-    flow = data["flow"]
+    flow = data.get("flow")
+    if not flow:
+        await state.clear()
+        await cb.message.answer(
+            "⌛ Sessiya eskirgan. Admin menyudan qaytadan boshlang.",
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
     grade_id = int(cb.data.split(":")[1])
     await state.update_data(grade_id=grade_id)
     tg = cb.from_user.id
@@ -170,7 +177,7 @@ async def adm_grade_chosen(cb: CallbackQuery, state: FSMContext) -> None:
             await state.clear()
         else:
             await state.set_state(AdmStates.lesson_subject)
-            await cb.message.answer("Qaysi finga dars qo‘shamiz?", reply_markup=admin_pick_row(buttons, "adm:cancel"))
+            await cb.message.answer("Qaysi fanga dars qo‘shamiz?", reply_markup=admin_pick_row(buttons, "adm:cancel"))
     elif flow == "material":
         try:
             overview = await backend_client.admin_overview(tg)
@@ -199,7 +206,7 @@ async def adm_grade_chosen(cb: CallbackQuery, state: FSMContext) -> None:
             await state.clear()
         else:
             await state.set_state(AdmStates.question_subject)
-            await cb.message.answer("Qaysi fandga savol qo‘shamiz?", reply_markup=admin_pick_row(buttons, "adm:cancel"))
+            await cb.message.answer("Qaysi fanga savol qo‘shamiz?", reply_markup=admin_pick_row(buttons, "adm:cancel"))
 
 
 @router.message(AdmStates.pick_grade, F.text)
@@ -224,8 +231,12 @@ async def adm_subject_name(message: Message, state: FSMContext) -> None:
 @router.message(AdmStates.subject_emoji, F.text)
 async def adm_subject_emoji(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
-    if not data.get("name"):
-        await message.answer("✏️ Avval fan nomini yuboring.")
+    if not data.get("name") or not data.get("grade_id"):
+        await state.clear()
+        await message.answer(
+            "⌛ Sessiya eskirgan. Admin menyudan qaytadan boshlang.",
+            reply_markup=admin_menu_keyboard(),
+        )
         return
     emoji = "📘" if message.text.strip().lower() == "default" else message.text.strip()[:8]
     try:
@@ -413,6 +424,13 @@ async def adm_material_content(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     kind = data.get("material_kind", "text")
     content = message.text.strip()
+    if not data.get("material_lesson_id") or not data.get("material_title"):
+        await state.clear()
+        await message.answer(
+            "⌛ Sessiya eskirgan. Admin menyudan qaytadan boshlang.",
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
     if kind in {"video", "pdf", "live"} and not content.lower().startswith(("http://", "https://")):
         await message.answer("⚠️ Bu format uchun havola kerak (http:// yoki https://). Qayta yuboring.")
         return
@@ -452,7 +470,7 @@ async def adm_question_subject(cb: CallbackQuery, state: FSMContext) -> None:
         await _fail(cb.message, e)
         return
     if not lessons:
-        await cb.message.answer("Bu finda dars yo‘q — avval «📖 Dars qo‘shish».")
+        await cb.message.answer("Bu fanda dars yo‘q — avval «📖 Dars qo‘shish».")
         await state.clear()
     else:
         buttons = [(f"{l['level_order']}. {l['title'][:40]}", f"ql:{l['id']}") for l in lessons]
@@ -507,6 +525,13 @@ async def adm_question_options(message: Message, state: FSMContext) -> None:
         await message.answer("Aynan <b>bitta</b> variantning oldiga * qo‘ying (to‘g‘ri javob). Qayta yuboring.")
         return
     data = await state.get_data()
+    if not data.get("lesson_id") or not data.get("q_text"):
+        await state.clear()
+        await message.answer(
+            "⌛ Sessiya eskirgan. Admin menyudan qaytadan boshlang.",
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
     try:
         q = await backend_client.admin_create_question(
             message.from_user.id, data["lesson_id"], data["q_text"], "single", options

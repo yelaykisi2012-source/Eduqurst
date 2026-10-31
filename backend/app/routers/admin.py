@@ -5,9 +5,10 @@ Who is an admin? A pupil whose Telegram id appears in ADMIN_TELEGRAM_IDS
 (backend/.env). The check runs on EVERY request: JWT proves who you are,
 the allowlist proves you may admin. Everyone else gets 403.
 
-What can an admin do? Create subjects / lessons / quiz questions for any
-grade — this is how grades 5..11 get filled with real content.
-Deletion is intentionally NOT exposed yet (safer while learning).
+What can an admin do? Create and edit subjects / lessons / materials /
+quiz questions for any grade, publish or hide them, and delete individual
+materials or questions — this is how grades 5..11 get filled with real
+content. Subjects and lessons are never hard-deleted (progress stays safe).
 """
 from __future__ import annotations
 
@@ -23,12 +24,16 @@ from app.models import AnswerOption, Grade, Lesson, LessonMaterial, Question, Su
 from app.schemas import (
     AdminLessonCreate,
     AdminLessonOut,
+    AdminLessonUpdate,
     AdminMaterialCreate,
     AdminMaterialOut,
     AdminQuestionCreate,
+    AdminQuestionDetailOut,
+    AdminQuestionOptionOut,
     AdminQuestionOut,
     AdminSubjectCreate,
     AdminSubjectOut,
+    AdminSubjectUpdate,
     GradeOverview,
 )
 from app.security import get_current_user
@@ -76,7 +81,7 @@ def overview(db: Session = Depends(get_db), admin: User = Depends(get_admin)):
                 subjects=[
                     AdminSubjectOut(
                         id=s.id, name=s.name, slug=s.slug, emoji=s.emoji,
-                        grade_id=s.grade_id,
+                        grade_id=s.grade_id, is_published=s.is_published,
                         lesson_count=db.scalar(
                             select(func.count(Lesson.id)).where(Lesson.subject_id == s.id)
                         ) or 0,
@@ -109,7 +114,34 @@ def create_subject(
     db.commit()
     return AdminSubjectOut(
         id=subject.id, name=subject.name, slug=subject.slug, emoji=subject.emoji,
-        grade_id=subject.grade_id, lesson_count=0,
+        grade_id=subject.grade_id, lesson_count=0, is_published=subject.is_published,
+    )
+
+
+@router.patch("/subjects/{subject_id}", response_model=AdminSubjectOut)
+def update_subject(
+    subject_id: int,
+    body: AdminSubjectUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin),
+):
+    """Rename / re-emoji / publish-hide a subject without deleting its content."""
+    subject = db.get(Subject, subject_id)
+    if subject is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Fan topilmadi")
+    if body.name is not None:
+        subject.name = body.name.strip()
+    if body.emoji is not None:
+        subject.emoji = body.emoji.strip() or "📘"
+    if body.is_published is not None:
+        subject.is_published = body.is_published
+    db.commit()
+    return AdminSubjectOut(
+        id=subject.id, name=subject.name, slug=subject.slug, emoji=subject.emoji,
+        grade_id=subject.grade_id, is_published=subject.is_published,
+        lesson_count=db.scalar(
+            select(func.count(Lesson.id)).where(Lesson.subject_id == subject.id)
+        ) or 0,
     )
 
 
@@ -141,9 +173,62 @@ def create_lesson(
     db.commit()
     return AdminLessonOut(
         id=lesson.id, title=lesson.title, level_order=lesson.level_order,
-        subject_name=subject.name,
-        question_count=0,
+        subject_name=subject.name, question_count=0, material_count=0,
+        explanation=lesson.explanation, stars_reward=lesson.stars_reward,
+        pass_threshold_percent=lesson.pass_threshold_percent,
+        is_published=lesson.is_published,
     )
+
+
+def _lesson_out(db: Session, lesson: Lesson) -> AdminLessonOut:
+    return AdminLessonOut(
+        id=lesson.id, title=lesson.title, level_order=lesson.level_order,
+        subject_name=lesson.subject.name, explanation=lesson.explanation,
+        stars_reward=lesson.stars_reward,
+        pass_threshold_percent=lesson.pass_threshold_percent,
+        is_published=lesson.is_published,
+        question_count=db.scalar(
+            select(func.count(Question.id)).where(Question.lesson_id == lesson.id)
+        ) or 0,
+        material_count=db.scalar(
+            select(func.count(LessonMaterial.id)).where(LessonMaterial.lesson_id == lesson.id)
+        ) or 0,
+    )
+
+
+@router.get("/lessons/{lesson_id}", response_model=AdminLessonOut)
+def get_lesson(
+    lesson_id: int, db: Session = Depends(get_db), admin: User = Depends(get_admin)
+):
+    lesson = db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dars topilmadi")
+    return _lesson_out(db, lesson)
+
+
+@router.patch("/lessons/{lesson_id}", response_model=AdminLessonOut)
+def update_lesson(
+    lesson_id: int,
+    body: AdminLessonUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin),
+):
+    """Edit lesson text/points/threshold or publish-hide it (content is kept)."""
+    lesson = db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dars topilmadi")
+    if body.title is not None:
+        lesson.title = body.title.strip()
+    if body.explanation is not None:
+        lesson.explanation = body.explanation
+    if body.stars_reward is not None:
+        lesson.stars_reward = body.stars_reward
+    if body.pass_threshold_percent is not None:
+        lesson.pass_threshold_percent = body.pass_threshold_percent
+    if body.is_published is not None:
+        lesson.is_published = body.is_published
+    db.commit()
+    return _lesson_out(db, lesson)
 
 
 @router.get("/subjects/{subject_id}/lessons", response_model=list[AdminLessonOut])
@@ -153,19 +238,7 @@ def list_lessons(
     lessons = db.scalars(
         select(Lesson).where(Lesson.subject_id == subject_id).order_by(Lesson.level_order)
     ).all()
-    return [
-        AdminLessonOut(
-            id=l.id, title=l.title, level_order=l.level_order,
-            subject_name=l.subject.name,
-            question_count=db.scalar(
-                select(func.count(Question.id)).where(Question.lesson_id == l.id)
-            ) or 0,
-            material_count=db.scalar(
-                select(func.count(LessonMaterial.id)).where(LessonMaterial.lesson_id == l.id)
-            ) or 0,
-        )
-        for l in lessons
-    ]
+    return [_lesson_out(db, l) for l in lessons]
 
 
 @router.post("/lessons/{lesson_id}/materials", response_model=AdminMaterialOut, status_code=201)
@@ -248,3 +321,70 @@ def create_question(
         id=q.id, text=q.text, kind=q.kind, option_count=len(body.options),
         correct_count=len(correct),
     )
+
+
+@router.get("/lessons/{lesson_id}/materials", response_model=list[AdminMaterialOut])
+def list_materials(
+    lesson_id: int, db: Session = Depends(get_db), admin: User = Depends(get_admin)
+):
+    lesson = db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dars topilmadi")
+    materials = db.scalars(
+        select(LessonMaterial)
+        .where(LessonMaterial.lesson_id == lesson_id)
+        .order_by(LessonMaterial.order_index)
+    ).all()
+    return [
+        AdminMaterialOut(
+            id=m.id, kind=m.kind, title=m.title,
+            content=m.content, order_index=m.order_index,
+        )
+        for m in materials
+    ]
+
+
+@router.delete("/materials/{material_id}", status_code=204)
+def delete_material(
+    material_id: int, db: Session = Depends(get_db), admin: User = Depends(get_admin)
+) -> None:
+    material = db.get(LessonMaterial, material_id)
+    if material is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Material topilmadi")
+    db.delete(material)
+    db.commit()
+
+
+@router.get("/lessons/{lesson_id}/questions", response_model=list[AdminQuestionDetailOut])
+def list_questions(
+    lesson_id: int, db: Session = Depends(get_db), admin: User = Depends(get_admin)
+):
+    """Full quiz view for admins (includes which option is correct)."""
+    lesson = db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dars topilmadi")
+    return [
+        AdminQuestionDetailOut(
+            id=q.id, text=q.text, kind=q.kind,
+            option_count=len(q.options),
+            correct_count=sum(1 for o in q.options if o.is_correct),
+            options=[
+                AdminQuestionOptionOut(id=o.id, text=o.text, is_correct=o.is_correct)
+                for o in q.options
+            ],
+        )
+        for q in lesson.questions
+    ]
+
+
+@router.delete("/questions/{question_id}", status_code=204)
+def delete_question(
+    question_id: int, db: Session = Depends(get_db), admin: User = Depends(get_admin)
+) -> None:
+    question = db.get(Question, question_id)
+    if question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Savol topilmadi")
+    for option in list(question.options):
+        db.delete(option)
+    db.delete(question)
+    db.commit()

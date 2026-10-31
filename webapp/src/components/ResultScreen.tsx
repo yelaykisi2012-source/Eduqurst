@@ -39,7 +39,11 @@ export default function ResultScreen({
 
         {result.new_achievements.length > 0 && (
           <p className="mt-2 text-sm font-semibold text-amber-100">
-            🏆 Yangi yutuq: {result.new_achievements.join(", ")}
+            🏆 Yangi yutuq:{" "}
+            {(result.new_achievement_titles.length
+              ? result.new_achievement_titles
+              : result.new_achievements
+            ).join(", ")}
           </p>
         )}
       </div>

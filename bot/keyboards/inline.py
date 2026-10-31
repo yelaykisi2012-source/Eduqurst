@@ -96,19 +96,26 @@ def lessons_keyboard(subject: dict) -> InlineKeyboardMarkup:
 
 
 def lesson_actions_keyboard(lesson: dict) -> InlineKeyboardMarkup:
-    """Lesson actions + the four content formats as real link buttons."""
+    """Lesson actions + every material that has a URL as a real link button."""
     lid = lesson["id"]
     rows = []
     for m in lesson.get("materials", []):
-        content = m.get("content", "")
+        content = str(m.get("content", ""))
         if not content.lower().startswith(("http://", "https://")):
             continue  # written notes are printed in the message text
-        if m.get("kind") == "video":
-            rows.append([InlineKeyboardButton(text=f"▶️ {m['title']}", url=content)])
-        elif m.get("kind") == "pdf":
-            rows.append([InlineKeyboardButton(text=f"📄 {m['title']}", url=content)])
-        elif m.get("kind") == "live":
-            rows.append([InlineKeyboardButton(text=f"🔴 Jonli dars — {m['title']}", url=content)])
+        title = str(m.get("title", ""))[:55]
+        kind = m.get("kind")
+        if kind == "video":
+            label = f"▶️ {title}"
+        elif kind == "pdf":
+            label = f"📄 {title}"
+        elif kind == "live":
+            label = f"🔴 Jonli dars — {title}"
+        elif kind in ("image", "slide"):
+            label = f"🖼 {title}"
+        else:
+            label = f"🔗 {title}"
+        rows.append([InlineKeyboardButton(text=label, url=content)])
     video = lesson.get("video_url") or ""
     if video.lower().startswith(("http://", "https://")):
         rows.append([InlineKeyboardButton(text="🎬 Video darsni ko‘rish", url=video)])
@@ -140,6 +147,16 @@ def quiz_result_keyboard(passed: bool, lesson_id: int) -> InlineKeyboardMarkup:
         rows.append([_btn("🔁 Qayta urinish", f"qz:{lesson_id}")])
     rows.append([_btn("📚 Boshqa darslar", "nav:subjects")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def quiz_start_keyboard(lesson_id: int) -> InlineKeyboardMarkup:
+    """After a lesson is marked as read: go straight to the quiz."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn("🧩 Testni boshlash", f"qz:{lesson_id}")],
+            [_btn("⬅️ Bosqichlar", "nav:subjects")],
+        ]
+    )
 
 
 def menu_only_keyboard() -> InlineKeyboardMarkup:

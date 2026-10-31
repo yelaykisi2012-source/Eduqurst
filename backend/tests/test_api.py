@@ -7,6 +7,7 @@ progress endpoint. Run:  python -m pytest tests/ -v
 """
 from __future__ import annotations
 
+import time
 import uuid
 
 from fastapi.testclient import TestClient
@@ -28,6 +29,22 @@ def test_login_rejects_tampered_hash(client: TestClient):
     data = make_init_data({"id": 555002, "first_name": "Xakim"}, tamper=True)
     resp = client.post("/api/auth/telegram", json={"init_data": data})
     assert resp.status_code == 401
+
+
+def test_login_rejects_missing_stale_or_future_auth_date(client: TestClient):
+    user = {"id": 555010, "first_name": "Vaqt"}
+    # missing auth_date (auth_date=0 means "omit the field")
+    missing = make_init_data(user, auth_date=0)
+    assert client.post("/api/auth/telegram", json={"init_data": missing}).status_code == 401
+    # older than 24 hours
+    stale = make_init_data(user, auth_date=int(time.time()) - 90_000)
+    assert client.post("/api/auth/telegram", json={"init_data": stale}).status_code == 401
+    # far in the future (replay/clock abuse)
+    future = make_init_data(user, auth_date=int(time.time()) + 3_600)
+    assert client.post("/api/auth/telegram", json={"init_data": future}).status_code == 401
+    # a fresh date still works
+    fresh = make_init_data(user, auth_date=int(time.time()) - 60)
+    assert client.post("/api/auth/telegram", json={"init_data": fresh}).status_code == 200
 
 
 def test_protected_endpoint_requires_token(client: TestClient):
@@ -80,6 +97,7 @@ def test_fail_then_pass_unlocks_and_awards_stars(client: TestClient, auth: dict)
     r = client.post(f"/api/lessons/{l1['id']}/viewed", headers=auth)
     assert r.status_code == 200 and r.json()["stars_granted"] is True
     assert "first_lesson" in r.json()["new_achievements"]
+    assert "Birinchi dars" in r.json()["new_achievement_titles"]
     r = client.post(f"/api/lessons/{l1['id']}/viewed", headers=auth)
     assert r.json()["stars_granted"] is False  # no double grant
 
@@ -118,6 +136,7 @@ def test_fail_then_pass_unlocks_and_awards_stars(client: TestClient, auth: dict)
     assert result["next_level_unlocked"] is True
     assert "first_quiz" in result["new_achievements"]
     assert "first_lesson" not in result["new_achievements"]  # already earned at /viewed
+    assert "Birinchi test" in result["new_achievement_titles"]
 
     # 4) replay the SAME idempotency key -> duplicate, stars must NOT grow
     stars_before = result["stars_total"]
@@ -301,6 +320,10 @@ def test_admin_endpoints_forbid_non_admin(client: TestClient, grade1_auth):
         json={"grade_id": 5, "name": "Fizika", "emoji": "⚛️"},
         headers=grade1_auth,
     ).status_code == 403
+    assert client.patch(
+        "/api/admin/lessons/1", json={"is_published": False}, headers=grade1_auth
+    ).status_code == 403
+    assert client.delete("/api/admin/questions/1", headers=grade1_auth).status_code == 403
     me = client.get("/api/me", headers=grade1_auth).json()
     assert me["is_admin"] is False
 
@@ -682,3 +705,192 @@ def test_internal_admin_can_add_four_formats(client: TestClient):
     )
     assert forbidden.status_code == 403
     assert forbidden.json()["detail"]["error"] == "not_admin"
+
+
+def test_admin_can_edit_publish_and_delete_content(client: TestClient):
+    admin = login_as(client, {"id": 999000111, "first_name": "Admin"})
+    subj = client.post(
+        "/api/admin/subjects",
+        json={"grade_id": 10, "name": "Astronomiya", "emoji": "🪐"},
+        headers=admin,
+    )
+    assert subj.status_code == 201, subj.text
+    sid = subj.json()["id"]
+
+    lesson = client.post(
+        f"/api/admin/subjects/{sid}/lessons",
+        json={
+            "title": "Quyosh tizimi",
+            "explanation": "Quyosh tizimida sakkizta sayyora bor.",
+        },
+        headers=admin,
+    )
+    assert lesson.status_code == 201, lesson.text
+    lid = lesson.json()["id"]
+    assert lesson.json()["is_published"] is True
+    assert lesson.json()["question_count"] == 0
+
+    m1 = client.post(
+        f"/api/admin/lessons/{lid}/materials",
+        json={"kind": "video", "title": "Video dars", "content": "https://youtu.be/x"},
+        headers=admin,
+    ).json()
+    m2 = client.post(
+        f"/api/admin/lessons/{lid}/materials",
+        json={"kind": "text", "title": "Eslatma", "content": "Sayyoralarni yodda tut!"},
+        headers=admin,
+    ).json()
+    q1 = client.post(
+        f"/api/admin/lessons/{lid}/questions",
+        json={
+            "text": "Nechta sayyora bor?",
+            "kind": "single",
+            "options": [
+                {"text": "8", "is_correct": True},
+                {"text": "9", "is_correct": False},
+            ],
+        },
+        headers=admin,
+    ).json()
+    client.post(
+        f"/api/admin/lessons/{lid}/questions",
+        json={
+            "text": "Quyosh nima?",
+            "kind": "single",
+            "options": [
+                {"text": "Yulduz", "is_correct": True},
+                {"text": "Sayyora", "is_correct": False},
+            ],
+        },
+        headers=admin,
+    )
+
+    # lists: ordered materials + full question view with correct flags
+    mats = client.get(f"/api/admin/lessons/{lid}/materials", headers=admin).json()
+    assert [m["id"] for m in mats] == [m1["id"], m2["id"]]
+    qs = client.get(f"/api/admin/lessons/{lid}/questions", headers=admin).json()
+    assert len(qs) == 2
+    assert any(o["is_correct"] for o in qs[0]["options"])
+    assert [o["text"] for o in qs[0]["options"] if o["is_correct"]] == ["8"]
+
+    # edit lesson: text, points, threshold, hide
+    r = client.patch(
+        f"/api/admin/lessons/{lid}",
+        json={
+            "title": "Quyosh oilasi",
+            "stars_reward": 8,
+            "pass_threshold_percent": 90,
+            "is_published": False,
+        },
+        headers=admin,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["title"] == "Quyosh oilasi"
+    assert body["stars_reward"] == 8
+    assert body["pass_threshold_percent"] == 90
+    assert body["is_published"] is False
+    assert body["material_count"] == 2 and body["question_count"] == 2
+
+    # edit subject: rename + emoji (slug stays stable for old links)
+    r = client.patch(
+        f"/api/admin/subjects/{sid}",
+        json={"name": "Koinot", "emoji": "🌌"},
+        headers=admin,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "Koinot" and r.json()["emoji"] == "🌌"
+    assert r.json()["lesson_count"] == 1
+    assert r.json()["slug"] == subj.json()["slug"]
+
+    # delete one material and one question (options go with the question)
+    assert client.delete(f"/api/admin/materials/{m1['id']}", headers=admin).status_code == 204
+    assert client.delete(f"/api/admin/questions/{q1['id']}", headers=admin).status_code == 204
+    assert client.delete(f"/api/admin/materials/{m1['id']}", headers=admin).status_code == 404
+    lesson_now = client.get(f"/api/admin/lessons/{lid}", headers=admin).json()
+    assert lesson_now["material_count"] == 1
+    assert lesson_now["question_count"] == 1
+
+    # a pupil of the same grade: hidden lesson is not listed or readable
+    pupil = login_as(client, {"id": 888000901, "first_name": "Koinot"})
+    pick_grade(client, pupil, "10-sinf")
+    subjects = client.get("/api/subjects", headers=pupil).json()
+    koinot = next(s for s in subjects if s["id"] == sid)
+    assert koinot["name"] == "Koinot" and koinot["lessons"] == []
+    assert client.get(f"/api/lessons/{lid}", headers=pupil).status_code == 404
+
+    # publish the lesson again → it reappears with the edited title
+    client.patch(f"/api/admin/lessons/{lid}", json={"is_published": True}, headers=admin)
+    subjects = client.get("/api/subjects", headers=pupil).json()
+    koinot = next(s for s in subjects if s["id"] == sid)
+    assert [l["title"] for l in koinot["lessons"]] == ["Quyosh oilasi"]
+
+    # hide the whole subject → disappears from the pupil's home page
+    client.patch(f"/api/admin/subjects/{sid}", json={"is_published": False}, headers=admin)
+    subjects = client.get("/api/subjects", headers=pupil).json()
+    assert sid not in {s["id"] for s in subjects}
+
+
+def test_hidden_middle_lesson_does_not_block_unlock(client: TestClient):
+    admin = login_as(client, {"id": 999000111, "first_name": "Admin"})
+    subj = client.post(
+        "/api/admin/subjects",
+        json={"grade_id": 11, "name": "Zanjir", "emoji": "🔗"},
+        headers=admin,
+    )
+    sid = subj.json()["id"]
+    lids = []
+    for n in (1, 2, 3):
+        lesson = client.post(
+            f"/api/admin/subjects/{sid}/lessons",
+            json={
+                "title": f"Bosqich {n}",
+                "explanation": f"Bosqich {n} uchun yetarlicha uzun matn.",
+            },
+            headers=admin,
+        ).json()
+        lids.append(lesson["id"])
+        client.post(
+            f"/api/admin/lessons/{lesson['id']}/questions",
+            json={
+                "text": f"Savol {n}?",
+                "kind": "single",
+                "options": [
+                    {"text": "To'g'ri", "is_correct": True},
+                    {"text": "Xato", "is_correct": False},
+                ],
+            },
+            headers=admin,
+        )
+
+    # archive the middle lesson
+    client.patch(f"/api/admin/lessons/{lids[1]}", json={"is_published": False}, headers=admin)
+
+    pupil = login_as(client, {"id": 888000902, "first_name": "Zanjir"})
+    pick_grade(client, pupil, "11-sinf")
+    z = next(
+        s for s in client.get("/api/subjects", headers=pupil).json() if s["id"] == sid
+    )
+    assert [l["level_order"] for l in z["lessons"]] == [1, 3]
+    assert z["lessons"][1]["unlocked"] is False  # still needs level 1
+
+    quiz = client.get(f"/api/lessons/{lids[0]}/quiz", headers=pupil).json()
+    result = client.post(
+        f"/api/lessons/{lids[0]}/quiz/submit",
+        json={
+            "idempotency_key": uuid.uuid4().hex,
+            "answers": [
+                {"question_id": q["id"], "option_id": q["options"][0]["id"]}
+                for q in quiz["questions"]
+            ],
+        },
+        headers=pupil,
+    ).json()
+    assert result["passed"] is True
+    assert result["next_level_unlocked"] is True  # level 3, not the hidden level 2
+
+    z = next(
+        s for s in client.get("/api/subjects", headers=pupil).json() if s["id"] == sid
+    )
+    assert z["lessons"][1]["level_order"] == 3
+    assert z["lessons"][1]["unlocked"] is True

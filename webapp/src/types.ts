@@ -31,6 +31,7 @@ export interface AdminSubject {
   emoji: string;
   grade_id: number;
   lesson_count: number;
+  is_published: boolean;
 }
 
 export interface AdminLesson {
@@ -40,6 +41,26 @@ export interface AdminLesson {
   subject_name: string;
   question_count: number;
   material_count: number;
+  explanation: string;
+  stars_reward: number;
+  pass_threshold_percent: number;
+  is_published: boolean;
+}
+
+/** Full admin view of a question, including which option is correct. */
+export interface AdminQuestionOption {
+  id: number;
+  text: string;
+  is_correct: boolean;
+}
+
+export interface AdminQuestionDetail {
+  id: number;
+  text: string;
+  kind: string;
+  option_count: number;
+  correct_count: number;
+  options: AdminQuestionOption[];
 }
 
 export interface LessonSummary {
@@ -129,6 +150,7 @@ export interface QuizResult {
   next_level_unlocked: boolean;
   message_uz: string;
   new_achievements: string[];
+  new_achievement_titles: string[];
   duplicate: boolean;
 }
 

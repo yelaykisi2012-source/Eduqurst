@@ -29,6 +29,7 @@ from keyboards.inline import (
     menu_only_keyboard,
     quiz_question_keyboard,
     quiz_result_keyboard,
+    quiz_start_keyboard,
     subjects_keyboard,
 )
 
@@ -41,6 +42,16 @@ TELEGRAM_LIMIT = 4000  # safe margin below 4096
 def esc(value: Any) -> str:
     """HTML-escape anything that came from user/admin input."""
     return html.escape(str(value), quote=False)
+
+
+def is_url(value: Any) -> bool:
+    return str(value or "").strip().lower().startswith(("http://", "https://"))
+
+
+def achievement_titles(result: dict[str, Any]) -> list[str]:
+    """Human-readable achievement names, falling back to codes on old backends."""
+    titles = result.get("new_achievement_titles") or []
+    return titles or result.get("new_achievements") or []
 
 
 def _split(text: str) -> list[str]:
@@ -206,15 +217,15 @@ async def cb_lesson(cb: CallbackQuery) -> None:
         f"{esc(lesson['explanation'])}\n\n"
         f"⭐ Sovrin: <b>{lesson['stars_reward']}</b> · o‘tish chegarasi: <b>{lesson['pass_threshold_percent']}%</b>"
     )
-    # Written notes / slides are printed here; video, PDF and live lessons
-    # become real link buttons (see lesson_actions_keyboard).
+    # Written notes / slides are printed here; anything with a URL (video,
+    # PDF, live lesson, image, ...) becomes a real link button.
     extras = [
         m for m in lesson.get("materials", [])
-        if m["kind"] in ("text", "slide") or not str(m.get("content", "")).lower().startswith(("http://", "https://"))
+        if not is_url(m.get("content"))
     ]
     for m in extras:
         text += f"\n\n📝 <b>{esc(m['title'])}</b>\n{esc(m['content'])}"
-    link_kinds = [m for m in lesson.get("materials", []) if m not in extras]
+    link_kinds = [m for m in lesson.get("materials", []) if is_url(m.get("content"))]
     if link_kinds:
         text += "\n\n🎬 Quyidagi tugmalar orqali dars materiallarini oching:"
     await send_long(cb.message, text, reply_markup=lesson_actions_keyboard(lesson))
@@ -236,10 +247,10 @@ async def cb_viewed(cb: CallbackQuery) -> None:
         note = "✅ Barakalla, dars o‘qildi! ⭐ <b>+2 yulduzcha</b> qo‘shildi."
     else:
         note = "✅ Bu darsni allaqachon o‘qigansiz."
-    for code in result.get("new_achievements", []):
-        note += f"\n🏆 Yangi yutuq: <b>{esc(code)}</b>!"
-    note += "\n\n🧩 Endi testni boshlashingiz mumkin (yuqoridagi tugma)."
-    await cb.message.answer(note)
+    for title in achievement_titles(result):
+        note += f"\n🏆 Yangi yutuq: <b>{esc(title)}</b>!"
+    note += "\n\n🧩 Endi testni boshlashingiz mumkin."
+    await cb.message.answer(note, reply_markup=quiz_start_keyboard(lesson_id))
 
 
 # ------------------------------------------------------------------ quiz
@@ -311,8 +322,8 @@ async def _finish_quiz(target: Message, state: FSMContext, lesson_id: int, answe
     ]
     if result["next_level_unlocked"]:
         lines.append("🚀 Keyingi bosqich ochildi!")
-    for code in result["new_achievements"]:
-        lines.append(f"🏆 Yangi yutuq: <b>{esc(code)}</b>!")
+    for title in achievement_titles(result):
+        lines.append(f"🏆 Yangi yutuq: <b>{esc(title)}</b>!")
     await target.answer(
         "\n".join(lines),
         reply_markup=quiz_result_keyboard(result["passed"], lesson_id),
@@ -324,7 +335,16 @@ async def cb_answer(cb: CallbackQuery, state: FSMContext) -> None:
     await cb.answer()  # stop the spinner immediately
     _, idx, opt = cb.data.split(":")
     data = await state.get_data()
-    questions = data["questions"]
+    questions = data.get("questions") or []
+    # The state may be lost after a bot restart or an old message: never crash.
+    if not questions or "index" not in data:
+        await state.clear()
+        await cb.message.answer(
+            "⌛ Bu test eskirgan (bot qayta ishga tushgan bo‘lishi mumkin).\n"
+            "Darsni ochib, testni qaytadan boshlang.",
+            reply_markup=menu_only_keyboard(),
+        )
+        return
     i = int(idx)
     if not (0 <= i < len(questions)) or i != data["index"]:
         await cb.message.answer("Bu tugma eski — joriy savolga javob bering 🙂")
@@ -335,7 +355,7 @@ async def cb_answer(cb: CallbackQuery, state: FSMContext) -> None:
     except (ValueError, IndexError):
         await cb.message.answer("Variant topilmadi — qayta urinib ko‘ring.")
         return
-    answers = data["answers"]
+    answers = data.get("answers") or {}
     answers[str(q["id"])] = {"option_id": option["id"]}
     nxt = data["index"] + 1
     if nxt >= len(questions):
@@ -347,17 +367,34 @@ async def cb_answer(cb: CallbackQuery, state: FSMContext) -> None:
         )
 
 
+@router.callback_query(F.data.startswith("qa:"))
+async def cb_stale_answer(cb: CallbackQuery) -> None:
+    """Old question buttons after the quiz already ended / state was cleared."""
+    await cb.answer(
+        "Bu savol eskirgan. Darsni ochib, testni qaytadan boshlang.", show_alert=True
+    )
+
+
 @router.message(QuizStates.running, F.text)
 async def msg_text_answer(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
-    questions = data["questions"]
-    q = questions[data["index"]]
+    questions = data.get("questions") or []
+    index = data.get("index")
+    if not questions or index is None:
+        await state.clear()
+        await message.answer(
+            "⌛ Bu test eskirgan (bot qayta ishga tushgan bo‘lishi mumkin).\n"
+            "Darsni ochib, testni qaytadan boshlang.",
+            reply_markup=menu_only_keyboard(),
+        )
+        return
+    q = questions[index]
     if q["kind"] != "text":
         await message.answer("👆 Bu savolga quyidagi variant tugmalaridan birini bosib javob bering.")
         return
-    answers = data["answers"]
+    answers = data.get("answers") or {}
     answers[str(q["id"])] = {"text": message.text.strip()[:255]}
-    nxt = data["index"] + 1
+    nxt = index + 1
     if nxt >= len(questions):
         await _finish_quiz(message, state, data["lesson_id"], answers)
     else:

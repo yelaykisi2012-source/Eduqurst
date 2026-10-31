@@ -35,7 +35,12 @@ def verify_init_data(init_data: str, bot_token: str, max_age_seconds: int = 86_4
         auth_date = int(parsed.get("auth_date", "0"))
     except ValueError as exc:  # pragma: no cover
         raise TelegramAuthError("auth_date buzuq") from exc
-    if auth_date and time.time() - auth_date > max_age_seconds:
+    if auth_date <= 0:
+        raise TelegramAuthError("initData'da auth_date yo'q")
+    now = time.time()
+    if auth_date > now + 300:  # allow small clock skew, reject far-future dates
+        raise TelegramAuthError("auth_date noto'g'ri (kelajakdan)")
+    if now - auth_date > max_age_seconds:
         raise TelegramAuthError("initData muddati o'tgan (24 soat+)")
 
     check_string = urlencode(sorted(parsed.items(), key=lambda kv: kv[0]))

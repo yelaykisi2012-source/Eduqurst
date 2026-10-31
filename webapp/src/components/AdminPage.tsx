@@ -1,16 +1,24 @@
 /**
  * AdminPage.tsx — content management for admins only (is_admin === true).
  *
- * Flow: pick a grade -> see its subjects -> add subject / pick subject ->
- * see its lessons -> add lesson -> add quiz questions to a lesson.
+ * Flow: pick a grade -> see its subjects -> add/edit/hide subjects ->
+ * pick subject -> see its lessons -> add/edit/hide lessons -> add materials
+ * and quiz questions, and delete individual materials/questions.
  *
  * Everything here calls the /api/admin/* endpoints; the backend double-checks
  * on every request that the caller really is an admin (403 otherwise), so even
- * if someone hacked the UI they could not write anything.
+ * if someone hacked the UI they could not write anything. Subjects and lessons
+ * are never hard-deleted — hiding keeps pupil progress safe.
  */
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api";
-import type { AdminLesson, GradeOverview } from "../types";
+import type {
+  AdminLesson,
+  AdminQuestionDetail,
+  AdminSubject,
+  GradeOverview,
+  Material,
+} from "../types";
 
 interface Props {
   token: string;
@@ -24,6 +32,10 @@ const btnPrimary =
   "mt-4 w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white shadow enabled:hover:bg-blue-700 disabled:opacity-50";
 const btnGhost =
   "rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-600";
+const miniBtn = "text-xs font-bold text-blue-500 underline-offset-2 hover:underline";
+const miniDanger = "text-xs font-bold text-rose-500 underline-offset-2 hover:underline";
+
+type Panel = "edit" | "question" | "material" | "materials" | "questions";
 
 function errText(e: unknown): string {
   return e instanceof ApiError ? e.message : "Aloqa xatosi: serverga yetib bo‘lmadi.";
@@ -37,8 +49,9 @@ export default function AdminPage({ token, notify }: Props) {
   const [lessons, setLessons] = useState<AdminLesson[] | null>(null);
   const [showSubjectForm, setShowSubjectForm] = useState(false);
   const [showLessonForm, setShowLessonForm] = useState(false);
-  const [questionLessonId, setQuestionLessonId] = useState<number | null>(null);
-  const [materialLessonId, setMaterialLessonId] = useState<number | null>(null);
+  const [editingSubjectId, setEditingSubjectId] = useState<number | null>(null);
+  const [panel, setPanel] = useState<{ lessonId: number; kind: Panel } | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0); // remount forms after a successful add
 
   const loadOverview = useCallback(async () => {
@@ -66,22 +79,33 @@ export default function AdminPage({ token, notify }: Props) {
     [token, notify],
   );
 
+  const refresh = useCallback(async () => {
+    await loadOverview();
+    if (subjectId !== null) await loadLessons(subjectId);
+  }, [loadOverview, loadLessons, subjectId]);
+
   const pickGrade = (g: number) => {
     setGradeId(g);
     setSubjectId(null);
     setLessons(null);
     setShowSubjectForm(false);
     setShowLessonForm(false);
-    setQuestionLessonId(null);
-    setMaterialLessonId(null);
+    setEditingSubjectId(null);
+    setPanel(null);
   };
 
   const pickSubject = (s: number) => {
     setSubjectId(s);
     setShowLessonForm(false);
-    setQuestionLessonId(null);
-    setMaterialLessonId(null);
+    setEditingSubjectId(null);
+    setPanel(null);
     void loadLessons(s);
+  };
+
+  const togglePanel = (lessonId: number, kind: Panel) => {
+    setPanel((cur) =>
+      cur && cur.lessonId === lessonId && cur.kind === kind ? null : { lessonId, kind },
+    );
   };
 
   /** Called after any successful create: refresh lists + friendly toast. */
@@ -89,11 +113,46 @@ export default function AdminPage({ token, notify }: Props) {
     notify(`${what} qo‘shildi ✅`);
     setShowSubjectForm(false);
     setShowLessonForm(false);
-    setQuestionLessonId(null);
-    setMaterialLessonId(null);
+    setPanel(null);
     setFormKey((k) => k + 1);
-    await loadOverview();
-    if (subjectId !== null) void loadLessons(subjectId);
+    await refresh();
+  };
+
+  /** Called after edit/hide: keep the current selection, refresh counts. */
+  const afterChange = async (what: string, closeEditor = true) => {
+    notify(`${what} ✅`);
+    if (closeEditor) {
+      setEditingSubjectId(null);
+      setPanel((cur) => (cur && cur.kind === "edit" ? null : cur));
+    }
+    setFormKey((k) => k + 1);
+    await refresh();
+  };
+
+  const toggleSubject = async (s: AdminSubject) => {
+    setBusyKey(`subject-${s.id}`);
+    try {
+      await api.adminUpdateSubject(token, s.id, { is_published: !s.is_published });
+      notify(s.is_published ? "Fan yashirildi 🙈" : "Fan chiqarildi 👁");
+      await refresh();
+    } catch (e) {
+      notify(errText(e));
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const toggleLesson = async (l: AdminLesson) => {
+    setBusyKey(`lesson-${l.id}`);
+    try {
+      await api.adminUpdateLesson(token, l.id, { is_published: !l.is_published });
+      notify(l.is_published ? "Dars yashirildi 🙈" : "Dars chiqarildi 👁");
+      await refresh();
+    } catch (e) {
+      notify(errText(e));
+    } finally {
+      setBusyKey(null);
+    }
   };
 
   if (loadError && overview === null) {
@@ -154,7 +213,12 @@ export default function AdminPage({ token, notify }: Props) {
           </div>
 
           {showSubjectForm && (
-            <SubjectForm key={formKey} token={token} gradeId={activeGrade.grade_id} onDone={() => afterCreate("Fan")} />
+            <SubjectForm
+              key={`new-${formKey}`}
+              token={token}
+              gradeId={activeGrade.grade_id}
+              onDone={() => afterCreate("Fan")}
+            />
           )}
 
           <div className="mt-2 space-y-2">
@@ -164,20 +228,55 @@ export default function AdminPage({ token, notify }: Props) {
               </p>
             )}
             {activeGrade.subjects.map((s) => (
-              <button
+              <div
                 key={s.id}
-                onClick={() => pickSubject(s.id)}
                 className={
                   s.id === subjectId
-                    ? "flex w-full items-center justify-between rounded-xl border-2 border-blue-500 bg-blue-50 px-3 py-2.5 text-left"
-                    : "flex w-full items-center justify-between rounded-xl border border-blue-100 bg-white px-3 py-2.5 text-left hover:border-blue-300"
+                    ? "rounded-xl border-2 border-blue-500 bg-blue-50 px-3 py-2.5"
+                    : "rounded-xl border border-blue-100 bg-white px-3 py-2.5"
                 }
               >
-                <span className="text-sm font-semibold text-slate-800">
-                  {s.emoji} {s.name}
-                </span>
-                <span className="text-xs text-blue-500">{s.lesson_count} dars →</span>
-              </button>
+                <button
+                  onClick={() => pickSubject(s.id)}
+                  className="flex w-full items-center justify-between text-left"
+                >
+                  <span className="text-sm font-semibold text-slate-800">
+                    {s.emoji} {s.name}{" "}
+                    {!s.is_published && (
+                      <span className="ml-1 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                        yashirilgan
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xs text-blue-500">{s.lesson_count} dars →</span>
+                </button>
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                  <button
+                    onClick={() =>
+                      setEditingSubjectId((cur) => (cur === s.id ? null : s.id))
+                    }
+                    className={miniBtn}
+                  >
+                    ✏️ Tahrirlash
+                  </button>
+                  <button
+                    onClick={() => void toggleSubject(s)}
+                    disabled={busyKey === `subject-${s.id}`}
+                    className={s.is_published ? miniDanger : miniBtn}
+                  >
+                    {s.is_published ? "🙈 Yashirish" : "👁 Chiqarish"}
+                  </button>
+                </div>
+                {editingSubjectId === s.id && (
+                  <SubjectEditForm
+                    key={`edit-${s.id}`}
+                    token={token}
+                    subject={s}
+                    onDone={(msg) => afterChange(msg)}
+                    onCancel={() => setEditingSubjectId(null)}
+                  />
+                )}
+              </div>
             ))}
           </div>
         </div>
@@ -196,7 +295,12 @@ export default function AdminPage({ token, notify }: Props) {
           </div>
 
           {showLessonForm && (
-            <LessonForm key={formKey} token={token} subjectId={activeSubject.id} onDone={() => afterCreate("Dars")} />
+            <LessonForm
+              key={`new-${formKey}`}
+              token={token}
+              subjectId={activeSubject.id}
+              onDone={() => afterCreate("Dars")}
+            />
           )}
 
           <div className="mt-2 space-y-2">
@@ -208,46 +312,83 @@ export default function AdminPage({ token, notify }: Props) {
             )}
             {lessons?.map((l) => (
               <div key={l.id} className="rounded-xl border border-blue-100 bg-white px-3 py-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-slate-800">
-                    {l.level_order}. {l.title}
-                  </span>
-                  <span className="text-xs text-slate-400">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-800">
+                    {l.level_order}. {l.title}{" "}
+                    {!l.is_published && (
+                      <span className="ml-1 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                        yashirilgan
+                      </span>
+                    )}
+                  </p>
+                  <p className="shrink-0 text-right text-[11px] leading-5 text-slate-400">
                     {l.question_count} savol · {l.material_count} material
-                  </span>
+                    <br />
+                    ⭐ {l.stars_reward} · {l.pass_threshold_percent}%
+                  </p>
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
-                  <button
-                    onClick={() =>
-                      setQuestionLessonId((cur) => (cur === l.id ? null : l.id))
-                    }
-                    className="text-xs font-bold text-blue-500 underline-offset-2 hover:underline"
-                  >
-                    {questionLessonId === l.id ? "Savol formasini yopish ▲" : "+ Savol qo‘shish"}
+                  <button onClick={() => togglePanel(l.id, "edit")} className={miniBtn}>
+                    {panel?.lessonId === l.id && panel.kind === "edit" ? "Tahrirni yopish ▲" : "✏️ Tahrirlash"}
                   </button>
                   <button
-                    onClick={() =>
-                      setMaterialLessonId((cur) => (cur === l.id ? null : l.id))
-                    }
-                    className="text-xs font-bold text-emerald-600 underline-offset-2 hover:underline"
+                    onClick={() => void toggleLesson(l)}
+                    disabled={busyKey === `lesson-${l.id}`}
+                    className={l.is_published ? miniDanger : miniBtn}
                   >
-                    {materialLessonId === l.id ? "Material formasini yopish ▲" : "🎞 + Material"}
+                    {l.is_published ? "🙈 Yashirish" : "👁 Chiqarish"}
+                  </button>
+                  <button onClick={() => togglePanel(l.id, "question")} className="text-xs font-bold text-blue-500 underline-offset-2 hover:underline">
+                    {panel?.lessonId === l.id && panel.kind === "question" ? "Formani yopish ▲" : "+ Savol qo‘shish"}
+                  </button>
+                  <button onClick={() => togglePanel(l.id, "material")} className="text-xs font-bold text-emerald-600 underline-offset-2 hover:underline">
+                    {panel?.lessonId === l.id && panel.kind === "material" ? "Formani yopish ▲" : "🎞 + Material"}
+                  </button>
+                  <button onClick={() => togglePanel(l.id, "materials")} className="text-xs font-bold text-emerald-700 underline-offset-2 hover:underline">
+                    {panel?.lessonId === l.id && panel.kind === "materials" ? "Ro‘yxatni yopish ▲" : `📋 Materiallar (${l.material_count})`}
+                  </button>
+                  <button onClick={() => togglePanel(l.id, "questions")} className="text-xs font-bold text-blue-700 underline-offset-2 hover:underline">
+                    {panel?.lessonId === l.id && panel.kind === "questions" ? "Ro‘yxatni yopish ▲" : `📝 Savollar (${l.question_count})`}
                   </button>
                 </div>
-                {questionLessonId === l.id && (
+
+                {panel?.lessonId === l.id && panel.kind === "edit" && (
+                  <LessonEditForm
+                    key={`edit-${l.id}`}
+                    token={token}
+                    lesson={l}
+                    onDone={(msg) => afterChange(msg)}
+                    onCancel={() => setPanel(null)}
+                  />
+                )}
+                {panel?.lessonId === l.id && panel.kind === "question" && (
                   <QuestionForm
-                    key={formKey}
+                    key={`q-${l.id}-${formKey}`}
                     token={token}
                     lessonId={l.id}
                     onDone={() => afterCreate("Savol")}
                   />
                 )}
-                {materialLessonId === l.id && (
+                {panel?.lessonId === l.id && panel.kind === "material" && (
                   <MaterialForm
-                    key={formKey}
+                    key={`m-${l.id}-${formKey}`}
                     token={token}
                     lessonId={l.id}
                     onDone={() => afterCreate("Material")}
+                  />
+                )}
+                {panel?.lessonId === l.id && panel.kind === "materials" && (
+                  <MaterialList
+                    token={token}
+                    lessonId={l.id}
+                    onChanged={() => afterChange("Material o‘chirildi", false)}
+                  />
+                )}
+                {panel?.lessonId === l.id && panel.kind === "questions" && (
+                  <QuestionList
+                    token={token}
+                    lessonId={l.id}
+                    onChanged={() => afterChange("Savol o‘chirildi", false)}
                   />
                 )}
               </div>
@@ -259,7 +400,7 @@ export default function AdminPage({ token, notify }: Props) {
   );
 }
 
-/* ---------- forms ---------- */
+/* ---------- create forms ---------- */
 
 function SubjectForm({
   token,
@@ -302,6 +443,63 @@ function SubjectForm({
       >
         {busy ? "Saqlanmoqda…" : "Fan saqlash"}
       </button>
+    </div>
+  );
+}
+
+/* ---------- edit forms ---------- */
+
+function SubjectEditForm({
+  token,
+  subject,
+  onDone,
+  onCancel,
+}: {
+  token: string;
+  subject: AdminSubject;
+  onDone: (msg: string) => Promise<void> | void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(subject.name);
+  const [emoji, setEmoji] = useState(subject.emoji);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await api.adminUpdateSubject(token, subject.id, {
+        name: name.trim(),
+        emoji: emoji.trim() || "📘",
+      });
+      await onDone("Fan yangilandi");
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 rounded-xl border border-blue-200 bg-white p-3">
+      <label className={label}>Fan nomi</label>
+      <input className={input} value={name} onChange={(e) => setName(e.target.value)} />
+      <label className={label}>Emoji</label>
+      <input className={input} value={emoji} onChange={(e) => setEmoji(e.target.value)} maxLength={4} />
+      {err && <p className="mt-2 text-xs font-semibold text-rose-600">{err}</p>}
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={submit}
+          disabled={busy || name.trim().length < 2}
+          className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+        >
+          {busy ? "Saqlanmoqda…" : "Saqlash"}
+        </button>
+        <button onClick={onCancel} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-500">
+          Bekor
+        </button>
+      </div>
     </div>
   );
 }
@@ -386,6 +584,95 @@ function LessonForm({
     </div>
   );
 }
+
+function LessonEditForm({
+  token,
+  lesson,
+  onDone,
+  onCancel,
+}: {
+  token: string;
+  lesson: AdminLesson;
+  onDone: (msg: string) => Promise<void> | void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState(lesson.title);
+  const [explanation, setExplanation] = useState(lesson.explanation);
+  const [stars, setStars] = useState(lesson.stars_reward);
+  const [threshold, setThreshold] = useState(lesson.pass_threshold_percent);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await api.adminUpdateLesson(token, lesson.id, {
+        title: title.trim(),
+        explanation: explanation.trim(),
+        stars_reward: stars,
+        pass_threshold_percent: threshold,
+      });
+      await onDone("Dars yangilandi");
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50/40 p-3">
+      <label className={label}>Dars nomi</label>
+      <input className={input} value={title} onChange={(e) => setTitle(e.target.value)} />
+      <label className={label}>Dars matni</label>
+      <textarea
+        className={`${input} min-h-24`}
+        value={explanation}
+        onChange={(e) => setExplanation(e.target.value)}
+      />
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <div>
+          <label className={label}>⭐ sovrin</label>
+          <input
+            className={input}
+            type="number"
+            min={1}
+            max={50}
+            value={stars}
+            onChange={(e) => setStars(Number(e.target.value) || 1)}
+          />
+        </div>
+        <div>
+          <label className={label}>Chegara %</label>
+          <input
+            className={input}
+            type="number"
+            min={10}
+            max={100}
+            value={threshold}
+            onChange={(e) => setThreshold(Number(e.target.value) || 10)}
+          />
+        </div>
+      </div>
+      {err && <p className="mt-2 text-xs font-semibold text-rose-600">{err}</p>}
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={submit}
+          disabled={busy || title.trim().length < 2 || explanation.trim().length < 10}
+          className="flex-1 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+        >
+          {busy ? "Saqlanmoqda…" : "Saqlash"}
+        </button>
+        <button onClick={onCancel} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-500">
+          Bekor
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- question form ---------- */
 
 interface OptionRow {
   text: string;
@@ -523,12 +810,23 @@ function QuestionForm({
   );
 }
 
+/* ---------- material form + lists ---------- */
+
 const MATERIAL_KINDS = [
   { kind: "video", label: "▶️ Video" },
   { kind: "pdf", label: "📄 PDF" },
   { kind: "live", label: "🔴 Jonli dars" },
   { kind: "text", label: "📝 Yozma matn" },
 ] as const;
+
+const KIND_ICON: Record<string, string> = {
+  video: "▶️",
+  pdf: "📄",
+  live: "🔴",
+  text: "📝",
+  image: "🖼",
+  slide: "🖼",
+};
 
 const isUrl = (value: string) => /^https?:\/\//i.test(value.trim());
 
@@ -620,6 +918,184 @@ function MaterialForm({
       <button onClick={submit} disabled={busy || !ready} className={btnPrimary}>
         {busy ? "Saqlanmoqda…" : "Material saqlash"}
       </button>
+    </div>
+  );
+}
+
+function ConfirmDelete({
+  busy,
+  onConfirm,
+  idleLabel = "🗑 O‘chirish",
+}: {
+  busy: boolean;
+  onConfirm: () => void;
+  idleLabel?: string;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  return confirming ? (
+    <span className="inline-flex items-center gap-2">
+      <button
+        onClick={() => {
+          setConfirming(false);
+          onConfirm();
+        }}
+        disabled={busy}
+        className="rounded-lg bg-rose-600 px-2 py-1 text-[11px] font-bold text-white disabled:opacity-50"
+      >
+        {busy ? "O‘chirilmoqda…" : "Tasdiqlash"}
+      </button>
+      <button onClick={() => setConfirming(false)} className="text-[11px] font-bold text-slate-500">
+        Bekor
+      </button>
+    </span>
+  ) : (
+    <button onClick={() => setConfirming(true)} className={miniDanger}>
+      {idleLabel}
+    </button>
+  );
+}
+
+function MaterialList({
+  token,
+  lessonId,
+  onChanged,
+}: {
+  token: string;
+  lessonId: number;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [items, setItems] = useState<Material[] | null>(null);
+  const [err, setErr] = useState("");
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setItems(await api.adminMaterials(token, lessonId));
+      setErr("");
+    } catch (e) {
+      setItems([]);
+      setErr(errText(e));
+    }
+  }, [token, lessonId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const remove = async (id: number) => {
+    setBusyId(id);
+    setErr("");
+    try {
+      await api.adminDeleteMaterial(token, id);
+      await load();
+      await onChanged();
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
+      {err && <p className="mb-2 text-xs font-semibold text-rose-600">{err}</p>}
+      {items === null && <p className="text-xs text-slate-400">Yuklanmoqda…</p>}
+      {items !== null && items.length === 0 && (
+        <p className="text-center text-xs text-slate-500">Bu darsda material yo‘q.</p>
+      )}
+      <div className="space-y-2">
+        {items?.map((m) => (
+          <div key={m.id} className="rounded-lg border border-emerald-100 bg-white px-3 py-2">
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 text-xs font-bold text-slate-800">
+                {KIND_ICON[m.kind] ?? "📎"} {m.title}
+                <span className="ml-1 font-normal text-slate-400">({m.kind})</span>
+              </p>
+              <ConfirmDelete busy={busyId === m.id} onConfirm={() => void remove(m.id)} />
+            </div>
+            <p className="mt-1 line-clamp-2 break-all text-[11px] text-slate-500">{m.content}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function QuestionList({
+  token,
+  lessonId,
+  onChanged,
+}: {
+  token: string;
+  lessonId: number;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [items, setItems] = useState<AdminQuestionDetail[] | null>(null);
+  const [err, setErr] = useState("");
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setItems(await api.adminQuestions(token, lessonId));
+      setErr("");
+    } catch (e) {
+      setItems([]);
+      setErr(errText(e));
+    }
+  }, [token, lessonId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const remove = async (id: number) => {
+    setBusyId(id);
+    setErr("");
+    try {
+      await api.adminDeleteQuestion(token, id);
+      await load();
+      await onChanged();
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50/40 p-3">
+      {err && <p className="mb-2 text-xs font-semibold text-rose-600">{err}</p>}
+      {items === null && <p className="text-xs text-slate-400">Yuklanmoqda…</p>}
+      {items !== null && items.length === 0 && (
+        <p className="text-center text-xs text-slate-500">Bu darsda savol yo‘q.</p>
+      )}
+      <div className="space-y-2">
+        {items?.map((q, qi) => (
+          <div key={q.id} className="rounded-lg border border-blue-100 bg-white px-3 py-2">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-xs font-bold text-slate-800">
+                {qi + 1}. {q.text}{" "}
+                <span className="font-normal text-slate-400">({q.kind})</span>
+              </p>
+              <ConfirmDelete busy={busyId === q.id} onConfirm={() => void remove(q.id)} />
+            </div>
+            <ul className="mt-1 space-y-0.5">
+              {q.options.map((o) => (
+                <li
+                  key={o.id}
+                  className={
+                    o.is_correct
+                      ? "text-[11px] font-bold text-emerald-600"
+                      : "text-[11px] text-slate-500"
+                  }
+                >
+                  {o.is_correct ? "✓" : "•"} {o.text}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

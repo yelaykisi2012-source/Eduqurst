@@ -133,7 +133,12 @@ def mark_lesson_viewed(
         db.flush()
         new_ach = gamification.evaluate_achievements(db, user)
     db.commit()
-    return {"ok": True, "stars_granted": granted, "new_achievements": [a.code for a in new_ach]}
+    return {
+        "ok": True,
+        "stars_granted": granted,
+        "new_achievements": [a.code for a in new_ach],
+        "new_achievement_titles": [a.title for a in new_ach],
+    }
 
 
 @router.get("/lessons/{lesson_id}/quiz", response_model=QuizOut)

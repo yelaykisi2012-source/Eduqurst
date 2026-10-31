@@ -110,12 +110,16 @@ def _result(
 ) -> QuizSubmitResult:
     next_unlocked = False
     if attempt.passed:
+        # Same rule as gamification.is_lesson_unlocked: skip hidden lessons,
+        # so archiving a middle lesson does not produce a false "no unlock".
         nxt = db.scalar(
-            select(Lesson).where(
+            select(Lesson)
+            .where(
                 Lesson.subject_id == lesson.subject_id,
-                Lesson.level_order == lesson.level_order + 1,
+                Lesson.level_order > lesson.level_order,
                 Lesson.is_published.is_(True),
             )
+            .order_by(Lesson.level_order.asc())
         )
         next_unlocked = nxt is not None
 
@@ -134,5 +138,6 @@ def _result(
         next_level_unlocked=next_unlocked,
         message_uz=message,
         new_achievements=[a.code for a in new_achievements],
+        new_achievement_titles=[a.title for a in new_achievements],
         duplicate=duplicate,
     )

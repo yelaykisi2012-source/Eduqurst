@@ -17,10 +17,12 @@ export default function GradePicker({
   grades,
   busy,
   onPick,
+  onCancel,
 }: {
   grades: Grade[];
   busy: boolean;
   onPick: (grade: Grade) => void;
+  onCancel?: () => void;
 }) {
   return (
     <section className="mt-6">
@@ -31,6 +33,14 @@ export default function GradePicker({
         Bu tanlov saqlanadi va keyingi safar avtomatik yuklanadi. Keyin profil
         sozlamalaridan o‘zgartirishingiz mumkin.
       </p>
+      {onCancel && (
+        <button
+          onClick={onCancel}
+          className="mt-2 px-1 text-xs font-bold text-blue-500 underline underline-offset-2"
+        >
+          ← Bekor qilish (hozirgi sinfim qolsin)
+        </button>
+      )}
       <div className="mt-3 grid grid-cols-3 gap-2">
         {grades.map((g, i) => (
           <button

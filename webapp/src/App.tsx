@@ -203,7 +203,16 @@ export default function App() {
       ) : phase === "error" ? (
         <Notice title="Xatolik yuz berdi" body={error} tone="error" />
       ) : phase === "onboarding" ? (
-        <GradePicker grades={grades} busy={busy} onPick={pickGrade} />
+        <GradePicker
+          grades={grades}
+          busy={busy}
+          onPick={pickGrade}
+          onCancel={
+            // Changing grade must be cancellable; first-run onboarding is not
+            // (a pupil cannot use the app without picking a grade).
+            profile?.grade_id != null ? () => setPhase("home") : undefined
+          }
+        />
       ) : view.kind === "home" ? (
         /* ---------- HOME: subject cards ---------- */
         <section className="mt-6 space-y-3">

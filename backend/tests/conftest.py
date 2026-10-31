@@ -30,12 +30,18 @@ from app.config import get_settings  # noqa: E402
 TEST_BOT_TOKEN = os.environ["BOT_TOKEN"]
 
 
-def make_init_data(user: dict, *, tamper: bool = False) -> str:
-    params = {
-        "auth_date": str(int(time.time())),
+def make_init_data(
+    user: dict, *, tamper: bool = False, auth_date: int | None = None
+) -> str:
+    """Forge valid initData. `auth_date=0` omits the field entirely."""
+    params: dict[str, str] = {
         "query_id": "testquery",
         "user": json.dumps(user, separators=(",", ":")),
     }
+    if auth_date is None:
+        params["auth_date"] = str(int(time.time()))
+    elif auth_date > 0:
+        params["auth_date"] = str(auth_date)
     check_string = urlencode(sorted(params.items()))
     secret = hmac.new(b"WebAppData", TEST_BOT_TOKEN.encode(), hashlib.sha256).digest()
     digest = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
