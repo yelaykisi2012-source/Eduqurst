@@ -1,16 +1,16 @@
 # 🤖 EduQuest
 
-Gamified Telegram Bot + Mini App for Grade-1 pupils (Uzbek Latin UI).
+Gamified Telegram Bot + Mini App for pupils in grades 1–11 (Uzbek Latin UI).
 Mascot: **Quest** — a friendly blue-and-white robot.
 
-Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
+Current state, live links and pending items: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ```
 Eduqurst/
-├── bot/       # Python + aiogram — the Telegram bot (Stage 1 ✅)
-├── webapp/    # React + TypeScript + Tailwind — the Mini App (grade onboarding built, build ✅)
-├── backend/   # FastAPI + SQLAlchemy + Alembic — API incl. the Grade 1–11 system (pytest 15/15 ✅)
-└── docs/      # ROADMAP.md (see the "Sinf tizimi" status block)
+├── bot/       # Python + aiogram — lessons, quizzes, profile, admin flows
+├── webapp/    # React + TypeScript + Tailwind — the Telegram Mini App
+├── backend/   # FastAPI + SQLAlchemy + Alembic — API, auth, gamification
+└── docs/      # ROADMAP.md (joriy holat va qolgan qadamlar)
 ```
 
 ## Prerequisites
@@ -30,8 +30,8 @@ python main.py
 ```
 
 You should see `EduQuest bot ishga tushdi`. Open Telegram, find your bot,
-send `/start` → you get an Uzbek greeting and, once Part 2 is deployed,
-the **🚀 Mini App'ni ochish** button.
+send `/start` → you get an Uzbek greeting and the **🚀 Mini App'ni ochish**
+button (when `MINI_APP_URL` is set).
 
 To stop the bot: press `Ctrl+C` in the terminal.
 
@@ -58,40 +58,51 @@ cd backend
 .venv/Scripts/activate
 pip install -r requirements.txt
 python -m alembic upgrade head      # schema on Neon (direct URL)
-python -m app.seed                  # demo content (idempotent)
-python -m pytest tests/             # 15 unit tests (auth, grade 1–11, content, quiz)
-python scripts/smoke_grades.py      # real-HTTP smoke of the grade system (starts its own server)
+python -m app.seed                  # grades 1–11 + demo content (idempotent)
+python -m pytest tests/             # 29 tests: auth, grade scoping, quiz, admin, bot API
 uvicorn app.main:app --port 8000    # API: http://127.0.0.1:8000/docs
-python scripts/e2e_neon.py          # full journey vs Neon (server must run)
+```
+
+Bot tests (no extra dependency):
+
+```bash
+cd bot
+.venv/Scripts/python.exe -m unittest discover -s tests -v   # 12 tests
 ```
 
 ## Part 4 — Connect bot ↔ Mini App
 
-The button only works over **public HTTPS**. Two easy options:
+The button only works over **public HTTPS**. The Mini App is already
+published on Qoder Sites:
 
-**A. Tunnel (fastest for testing):**
-```bash
-npm run tunnel     # OR download cloudflared / ngrok and expose port 5173
 ```
-Copy the generated `https://…` URL into `bot/.env` as `MINI_APP_URL`,
-restart the bot, and also set it in @BotFather:
-`/mybot → your bot → Bot Settings → Mini App Settings → Set Mini App` —
-paste the same URL. (The Web App URL must be set in BotFather for the
-in-app button to open inside Telegram on all devices.)
+https://eduquest-mini-app-7o3hx1m5a24.qoder.website
+```
 
-**B. Deploy (Stage 6 proper):** push `webapp/` to Vercel/Netlify, use the
-real domain in `MINI_APP_URL` and BotFather.
+Put that URL into `bot/.env` as `MINI_APP_URL`, restart the bot, and set the
+same URL in @BotFather:
+`/mybot → your bot → Bot Settings → Mini App Settings → Set Mini App`.
+
+For local testing you can still use a tunnel (`npm run tunnel`) and replace
+`MINI_APP_URL` temporarily.
 
 ## Environment variables (bot/.env — NEVER commit)
 | Variable | Where to get it | Needed for |
 |---|---|---|
 | `BOT_TOKEN` | @BotFather → /newbot | the bot at all |
 | `MINI_APP_URL` | your tunnel or hosting | the launch button |
-| `ADMIN_USER_IDS` | @userinfobot | admin rights (Stage 5) |
+| `ADMIN_USER_IDS` | @userinfobot | bot admin panel |
 
-## Testing checklist for Stage 1
+Backend (Render → Environment): `DATABASE_URL`, `BOT_TOKEN`, `JWT_SECRET`,
+`CORS_ORIGINS` (the published Mini App origin), `ADMIN_TELEGRAM_IDS`
+(comma-separated admin Telegram ids).
+
+## Testing checklist
+
 1. Bot answers `/start` in Uzbek ✔
-2. Without `MINI_APP_URL` the bot says it isn't configured (no fake button) ✔
-3. With `MINI_APP_URL` the 🚀 button appears and opens the Mini App inside Telegram ✔
-4. Mini App shows Quest, your Telegram first name, ⭐ 0 and three subject cards ✔
-5. Tapping a subject shows an honest "Tez orada" toast ✔
+2. Grade picker (1–11) appears when no grade is saved ✔
+3. Subjects → lessons → materials (video/PDF/live/text) → quiz → result ✔
+4. Stars and achievements are granted once (idempotent) ✔
+5. Mini App admin: create, edit, publish/hide, delete material/question ✔
+6. Backend 29 tests, bot 12 tests, frontend build — all green ✔
+7. Live Telegram click-through — pending the BotFather/restart steps above.
