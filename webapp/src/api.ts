@@ -16,6 +16,7 @@ import type {
   AdminSubject,
   Grade,
   GradeOverview,
+  Leaderboard,
   LessonDetail,
   Material,
   MaterialCreate,
@@ -125,6 +126,9 @@ export const api = {
   subjects: (token: string) => req<SubjectItem[]>("/api/subjects", { token }),
 
   progress: (token: string) => req<Progress>("/api/me/progress", { token }),
+
+  /** Weekly star league: Top-10 of the pupil's grade (server picks the grade). */
+  leaderboard: (token: string) => req<Leaderboard>("/api/leaderboard", { token }),
 
   lesson: (token: string, id: number) => req<LessonDetail>(`/api/lessons/${id}`, { token }),
 

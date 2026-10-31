@@ -1,4 +1,7 @@
-import type { Profile, Progress } from "../types";
+import { useEffect, useState } from "react";
+
+import { api } from "../api";
+import type { Leaderboard, Profile, Progress } from "../types";
 import Card from "./ui/Card";
 import Button from "./ui/Button";
 import Badge from "./ui/Badge";
@@ -10,8 +13,114 @@ import {
   IconLock,
 } from "./ui/Icons";
 
+/** "2026-10-26" → "26.10" (optionally shifted by a day). */
+function formatDay(iso: string, dayOffset = 0): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + dayOffset);
+  return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Weekly stars league: Top-10 of the pupil's grade. */
+function LeagueCard({ token, gradeId }: { token: string; gradeId: number | null }) {
+  const [board, setBoard] = useState<Leaderboard | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!token || gradeId == null) return;
+    let alive = true;
+    setFailed(false);
+    api
+      .leaderboard(token)
+      .then((b) => {
+        if (alive) setBoard(b);
+      })
+      .catch(() => {
+        if (alive) setFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, gradeId]);
+
+  if (gradeId == null) return null;
+
+  const medal = (rank: number) =>
+    rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `${rank}`;
+
+  return (
+    <Card variant="elevated" className="mb-3.5 sm:mb-6 p-3.5 sm:p-5 bg-white">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm sm:text-base font-black text-slate-900">
+            🏆 Haftalik reyting
+          </h2>
+          <p className="text-[10px] sm:text-xs font-semibold text-slate-400 mt-0.5">
+            {board
+              ? `${board.grade_name} · ${formatDay(board.week_start)} – ${formatDay(board.week_end, -1)}`
+              : "Yuklanmoqda…"}
+          </p>
+        </div>
+        {board && (
+          <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+            {board.participants} ishtirokchi
+          </span>
+        )}
+      </div>
+
+      {failed ? (
+        <p className="text-[11px] text-slate-400 mt-3">Reytingni yuklab bo‘lmadi.</p>
+      ) : board && board.top.length === 0 ? (
+        <p className="text-[11px] sm:text-xs text-slate-500 mt-3">
+          Bu hafta hali yulduz yo‘q. Birinchi bo‘lib yulduz to‘plang! ⭐
+        </p>
+      ) : board ? (
+        <>
+          <ol className="mt-2.5 divide-y divide-slate-100">
+            {board.top.map((row) => (
+              <li
+                key={row.user_id}
+                className={`flex items-center gap-2 py-1.5 ${
+                  row.is_me ? "bg-blue-50/60 -mx-2 px-2 rounded-lg" : ""
+                }`}
+              >
+                <span className="w-6 text-center text-xs font-black text-slate-500 shrink-0">
+                  {medal(row.rank)}
+                </span>
+                <span
+                  className={`flex-1 truncate text-xs sm:text-sm font-bold ${
+                    row.is_me ? "text-blue-700" : "text-slate-800"
+                  }`}
+                >
+                  {row.first_name || "O‘quvchi"}
+                  {row.is_me && (
+                    <span className="ml-1 text-[10px] font-bold text-blue-500">(siz)</span>
+                  )}
+                </span>
+                <span className="text-xs sm:text-sm font-black text-amber-600 shrink-0">
+                  ⭐ {row.stars}
+                </span>
+              </li>
+            ))}
+          </ol>
+          <div className="mt-2 pt-2 border-t border-slate-100 text-[11px] sm:text-xs font-bold text-slate-500">
+            {board.me
+              ? `Sizning o‘rningiz: #${board.me.rank} · ⭐ ${board.me.stars}`
+              : "Siz bu hafta hali yulduz to‘pladingiz."}
+          </div>
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
 /** Achievements / Yutuqlar Page */
-export function AchievementsPage({ progress }: { progress: Progress | null }) {
+export function AchievementsPage({
+  progress,
+  token,
+}: {
+  progress: Progress | null;
+  token: string;
+}) {
   const earnedCount = progress?.achievements.filter((a) => a.earned).length ?? 0;
   const totalCount = progress?.achievements.length ?? 0;
   const percent = totalCount > 0 ? Math.round((earnedCount / totalCount) * 100) : 0;
@@ -50,6 +159,9 @@ export function AchievementsPage({ progress }: { progress: Progress | null }) {
           </div>
         </div>
       </Card>
+
+      {/* Weekly league */}
+      <LeagueCard token={token} gradeId={progress?.grade_id ?? null} />
 
       {/* Achievements List */}
       <div className="space-y-2 sm:space-y-3">

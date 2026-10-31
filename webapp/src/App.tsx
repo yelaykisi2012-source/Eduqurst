@@ -648,7 +648,7 @@ export default function App() {
           />
         ) : view.kind === "achievements" ? (
           /* ===================== ACHIEVEMENTS ===================== */
-          <AchievementsPage progress={progress} />
+          <AchievementsPage progress={progress} token={token} />
         ) : view.kind === "admin" ? (
           /* ===================== ADMIN PAGE ===================== */
           <AdminPage token={token} notify={showToast} />

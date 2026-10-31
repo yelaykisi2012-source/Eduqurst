@@ -1,6 +1,8 @@
 """app/schemas.py — Pydantic request/response models (API contract)."""
 from __future__ import annotations
 
+from datetime import date
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -56,6 +58,36 @@ class ProfileResponse(BaseModel):
     # Consecutive local (Asia/Tashkent) days with activity — shown as 🔥.
     current_streak: int = 0
     max_streak: int = 0
+
+
+# ---------- weekly league (leaderboard) ----------
+class LeaderboardEntry(BaseModel):
+    """One pupil in the weekly top list (by stars earned this week)."""
+
+    rank: int
+    user_id: int
+    first_name: str
+    stars: int
+    is_me: bool = False
+
+
+class LeaderboardMe(BaseModel):
+    """The requesting pupil's own weekly standing."""
+
+    rank: int
+    stars: int
+
+
+class LeaderboardResponse(BaseModel):
+    grade_id: int
+    grade_name: str
+    # Local (Asia/Tashkent) Monday .. next Monday (end is exclusive).
+    week_start: date
+    week_end: date
+    # Pupils of this grade who earned at least 1 star this week.
+    participants: int
+    top: list[LeaderboardEntry]
+    me: LeaderboardMe | None = None
 
 
 # ---------- admin ----------

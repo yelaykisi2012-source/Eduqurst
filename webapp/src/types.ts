@@ -201,3 +201,29 @@ export interface Progress {
   subjects: SubjectProgress[];
   achievements: Achievement[];
 }
+
+/** Weekly stars league (GET /api/leaderboard). */
+export interface LeaderboardEntry {
+  rank: number;
+  user_id: number;
+  first_name: string;
+  stars: number;
+  is_me: boolean;
+}
+
+export interface LeaderboardMe {
+  rank: number;
+  stars: number;
+}
+
+export interface Leaderboard {
+  grade_id: number;
+  grade_name: string;
+  /** Local (Asia/Tashkent) Monday, ISO date. */
+  week_start: string;
+  /** Next Monday (exclusive), ISO date. */
+  week_end: string;
+  participants: number;
+  top: LeaderboardEntry[];
+  me: LeaderboardMe | null;
+}
