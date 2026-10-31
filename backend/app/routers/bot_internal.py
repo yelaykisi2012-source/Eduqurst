@@ -13,12 +13,13 @@ This endpoint never exposes anything beyond the pupil's own public-ish stats
 from __future__ import annotations
 
 import hmac
+from datetime import date
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import gamification, streaks
+from app import gamification, parents, streaks
 from app.config import get_settings
 from app.db import get_db
 from app.grades import user_grade
@@ -42,6 +43,11 @@ from app.schemas import (
     BotSummaryResponse,
     GradeOut,
     LessonDetail,
+    ParentCodeOut,
+    ParentLinkRequest,
+    ParentLinkResult,
+    ParentStatusOut,
+    ParentUnlinkRequest,
     ProgressResponse,
     ProfileResponse,
     QuizOut,
@@ -49,6 +55,7 @@ from app.schemas import (
     QuizSubmitResult,
     SetGradeRequest,
     SubjectWithLessons,
+    WeeklyDigestOut,
 )
 
 router = APIRouter(prefix="/api/internal", tags=["bot"])
@@ -268,3 +275,101 @@ def internal_admin_create_material(lesson_id: int, body: BotAdminMaterialCreate,
     return admin_api.create_material(
         lesson_id=lesson_id, body=body.data, db=db, admin=_internal_admin(db, body.telegram_id)
     )
+
+
+# ---------- parent weekly digest ----------
+
+_PARENT_ERRORS = {
+    "code_invalid": "Kod topilmadi — yangi kod oling.",
+    "code_expired": "Kod muddati tugagan — farzandingizdan yangi kod so‘rang.",
+    "self_link": "O‘zingizni ota-ona sifatida ulay olmaysiz.",
+}
+
+
+def _pupil_or_404(db: Session, telegram_id: int) -> User:
+    user = parents.pupil_by_telegram(db, telegram_id)
+    if user is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={"error": "pupil_not_found", "message_uz": "O‘quvchi topilmadi."},
+        )
+    return user
+
+
+@router.get(
+    "/parent/status",
+    response_model=ParentStatusOut,
+    dependencies=[Depends(require_bot_token)],
+)
+def parent_status(telegram_id: int = Query(ge=1), db: Session = Depends(get_db)):
+    user = _pupil_or_404(db, telegram_id)
+    return ParentStatusOut(
+        linked=user.parent_telegram_id is not None, parent_name=user.parent_name
+    )
+
+
+@router.post(
+    "/parent/code",
+    response_model=ParentCodeOut,
+    dependencies=[Depends(require_bot_token)],
+)
+def parent_code(telegram_id: int = Query(ge=1), db: Session = Depends(get_db)):
+    """A one-time code the pupil hands to their parent (15 minutes)."""
+    user = _pupil_or_404(db, telegram_id)
+    if user.parent_telegram_id is not None:
+        return ParentCodeOut(linked=True, parent_name=user.parent_name)
+    code, expires = parents.issue_code(db, user)
+    return ParentCodeOut(code=code, expires_at=expires)
+
+
+@router.post(
+    "/parent/link",
+    response_model=ParentLinkResult,
+    dependencies=[Depends(require_bot_token)],
+)
+def parent_link(body: ParentLinkRequest, db: Session = Depends(get_db)):
+    try:
+        user = parents.link_parent(
+            db, body.code, body.parent_telegram_id, body.parent_name
+        )
+    except parents.ParentLinkError as e:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"error": e.code, "message_uz": _PARENT_ERRORS.get(e.code, "Kod yaroqsiz.")},
+        )
+    grade = user_grade(db, user)
+    return ParentLinkResult(
+        pupil_first_name=user.first_name or "O‘quvchi",
+        grade_name=grade.name if grade else None,
+        parent_name=user.parent_name,
+    )
+
+
+@router.post(
+    "/parent/unlink",
+    status_code=204,
+    dependencies=[Depends(require_bot_token)],
+)
+def parent_unlink(body: ParentUnlinkRequest, db: Session = Depends(get_db)) -> None:
+    user = _pupil_or_404(db, body.telegram_id)
+    parents.unlink_parent(db, user)
+
+
+@router.get(
+    "/parents/weekly-digest",
+    response_model=WeeklyDigestOut,
+    dependencies=[Depends(require_bot_token)],
+)
+def parents_weekly_digest(
+    week_start: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """One week of progress for every linked parent (grouped by parent)."""
+    try:
+        data = parents.weekly_digests(db, week_start)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "week_start_not_monday", "message_uz": "Hafta dushanbadan boshlanadi."},
+        )
+    return WeeklyDigestOut(**data)

@@ -71,6 +71,19 @@ class User(Base):
     current_streak: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     max_streak: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_active_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Parent weekly digest (bot-only; nullable). The pupil generates a short
+    # one-time code, the parent sends it to the bot, and that Telegram id then
+    # receives a Sunday summary. One parent may be linked to several pupils.
+    parent_telegram_id: Mapped[int | None] = mapped_column(
+        BigInteger, index=True, nullable=True
+    )
+    parent_name: Mapped[str | None] = mapped_column(String(128))
+    parent_link_code: Mapped[str | None] = mapped_column(
+        String(16), unique=True, nullable=True
+    )
+    parent_link_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     grade: Mapped[Grade | None] = relationship()
     attempts: Mapped[list[QuizAttempt]] = relationship(back_populates="user")

@@ -19,6 +19,7 @@ from aiogram.types import BotCommand
 
 import backend_client
 import config
+import weekly_digest
 from handlers import admin as admin_handlers
 from handlers import learn as learn_handlers
 from handlers import profile as profile_handlers
@@ -110,6 +111,7 @@ async def main() -> None:
             BotCommand(command="lessons", description="📚 Darslar (bot ichida)"),
             BotCommand(command="profile", description="⭐ Profilim"),
             BotCommand(command="medallar", description="🏆 Yutuqlar"),
+            BotCommand(command="parent", description="📲 Ota-ona hisoboti"),
             BotCommand(command="app", description="Mini App’ni ochish"),
             BotCommand(command="help", description="Qanday ishlaydi?"),
         ]
@@ -120,9 +122,11 @@ async def main() -> None:
 
     logger.info("EduQuest bot ishga tushdi. To'xtatish: Ctrl+C")
     keepalive = asyncio.create_task(keepalive_loop(logger))
+    digest = asyncio.create_task(weekly_digest.digest_loop(bot))
     try:
         await dp.start_polling(bot)
     finally:
+        digest.cancel()
         keepalive.cancel()
         instance_lock.close()
 

@@ -428,6 +428,59 @@ class BotAdminMaterialCreate(BaseModel):
     data: AdminMaterialCreate
 
 
+# ---------- parent weekly digest (bot internal) ----------
+class ParentCodeOut(BaseModel):
+    code: str | None = None
+    expires_at: datetime | None = None
+    linked: bool = False
+    parent_name: str | None = None
+
+
+class ParentLinkRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=16)
+    parent_telegram_id: int = Field(ge=1)
+    parent_name: str = Field(default="", max_length=128)
+
+
+class ParentLinkResult(BaseModel):
+    pupil_first_name: str
+    grade_name: str | None = None
+    parent_name: str | None = None
+
+
+class ParentStatusOut(BaseModel):
+    linked: bool = False
+    parent_name: str | None = None
+
+
+class ParentUnlinkRequest(BaseModel):
+    telegram_id: int = Field(ge=1)
+
+
+class ParentDigestPupil(BaseModel):
+    user_id: int
+    first_name: str
+    grade_name: str | None = None
+    lessons_passed_week: int = 0
+    stars_week: int = 0
+    current_streak: int = 0
+    lessons_passed_total: int = 0
+    stars_total: int = 0
+    active_week: bool = False
+
+
+class ParentDigestGroup(BaseModel):
+    parent_telegram_id: int
+    parent_name: str | None = None
+    pupils: list[ParentDigestPupil]
+
+
+class WeeklyDigestOut(BaseModel):
+    week_start: date
+    week_end: date
+    parents: list[ParentDigestGroup]
+
+
 # ---------- progress / profile ----------
 class SubjectProgress(BaseModel):
     subject_name: str

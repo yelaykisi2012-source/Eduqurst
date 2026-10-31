@@ -38,11 +38,23 @@ def main_menu_keyboard(mini_app_url: str, is_admin: bool = False) -> InlineKeybo
             _btn("🏆 Yutuqlar", "nav:ach"),
         ]
     ]
-    app_row = [_btn("🚀 Mini App", "") if not mini_app_url else
-               InlineKeyboardButton(text="🚀 Mini App’ni ochish", web_app=WebAppInfo(url=mini_app_url))]
+    app_row = [_btn("📲 Ota-ona", "nav:parent")]
+    app_row.append(
+        _btn("🚀 Mini App", "") if not mini_app_url else
+        InlineKeyboardButton(text="🚀 Mini App’ni ochish", web_app=WebAppInfo(url=mini_app_url))
+    )
     if is_admin:
         app_row.append(_btn("🛠 Admin", "nav:admin"))
     rows.append(app_row)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def parent_panel_keyboard(linked: bool) -> InlineKeyboardMarkup:
+    """Parent digest panel: unlink only when something is linked."""
+    rows = []
+    if linked:
+        rows.append([_btn("❌ Hisobotni uzish", "pr:off")])
+    rows.append([_btn("🏠 Menyu", "nav:menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

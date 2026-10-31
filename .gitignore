@@ -22,6 +22,10 @@ Thumbs.db
 # Logs
 *.log
 
+# Bot runtime state (which parents already got this week's digest)
+.digest_state.json
+.digest_state.tmp
+
 # databases (local dev/test)
 *.db
 *.sqlite3

@@ -17,10 +17,13 @@ What is covered:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -33,12 +36,15 @@ os.environ.setdefault("ADMIN_USER_IDS", "999000111")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from aiogram import Bot  # noqa: E402
+from aiogram.exceptions import TelegramForbiddenError  # noqa: E402
 from aiogram.types import CallbackQuery, Chat, Document, Message, User, Video  # noqa: E402
 
 import backend_client  # noqa: E402
+import weekly_digest  # noqa: E402
 from handlers import admin as admin_handlers  # noqa: E402
 from handlers import learn as learn_handlers  # noqa: E402
 from handlers import profile as profile_handlers  # noqa: E402
+from handlers import start as start_handlers  # noqa: E402
 from keyboards import inline as kb  # noqa: E402
 from pupil_guard import PupilGuard  # noqa: E402
 
@@ -112,6 +118,8 @@ def all_buttons():
         kb.quiz_result_keyboard(False, 10),
         kb.quiz_start_keyboard(10),
         kb.menu_only_keyboard(),
+        kb.parent_panel_keyboard(linked=True),
+        kb.parent_panel_keyboard(linked=False),
         kb.admin_menu_keyboard(),
         kb.material_kind_keyboard(),
         kb.admin_pick_row(
@@ -531,7 +539,221 @@ class QuizMistakeReviewTests(unittest.TestCase):
         self.assertIn("Kichik son chapda turadi.", text)
 
 
-class MatchingQuestionTests(unittest.TestCase):
+class ParentDigestTests(unittest.TestCase):
+    """Parent linking panel + the Sunday digest scheduler (no network)."""
+
+    SUNDAY = datetime(2026, 11, 1, 13, 30, tzinfo=timezone.utc)  # 18:30 Tashkent
+
+    @staticmethod
+    def _group(parent: int = 1001, name: str = "Ona") -> dict:
+        return {
+            "parent_telegram_id": parent,
+            "parent_name": name,
+            "pupils": [
+                {
+                    "user_id": 1,
+                    "first_name": "Aziz",
+                    "grade_name": "1-sinf",
+                    "lessons_passed_week": 2,
+                    "stars_week": 9,
+                    "current_streak": 3,
+                    "lessons_passed_total": 5,
+                    "stars_total": 20,
+                    "active_week": True,
+                },
+                {
+                    "user_id": 2,
+                    "first_name": "<Zuhra>",
+                    "grade_name": None,
+                    "lessons_passed_week": 0,
+                    "stars_week": 0,
+                    "current_streak": 0,
+                    "lessons_passed_total": 1,
+                    "stars_total": 4,
+                    "active_week": False,
+                },
+            ],
+        }
+
+    def test_digest_due_only_sunday_after_configured_hour(self):
+        self.assertTrue(weekly_digest.digest_due(self.SUNDAY))
+        before = datetime(2026, 11, 1, 12, 30, tzinfo=timezone.utc)  # 17:30 local
+        self.assertFalse(weekly_digest.digest_due(before))
+        monday = datetime(2026, 11, 2, 13, 30, tzinfo=timezone.utc)
+        self.assertFalse(weekly_digest.digest_due(monday))
+
+    def test_week_start_is_local_monday(self):
+        self.assertEqual(weekly_digest.week_start_for(self.SUNDAY).isoformat(), "2026-10-26")
+
+    def test_format_escapes_names_and_marks_inactive_week(self):
+        from datetime import date
+
+        text = weekly_digest.format_digest(
+            self._group(), date(2026, 10, 26), date(2026, 11, 2)
+        )
+        self.assertIn("26-oktabr – 1-noyabr", text)
+        self.assertIn("Aziz", text)
+        self.assertIn("2</b> dars", text)
+        self.assertIn("+9", text)
+        self.assertIn("&lt;Zuhra&gt;", text)
+        self.assertIn("hali dars o‘tilmadi", text)
+
+    def test_round_sends_each_parent_once_per_week(self):
+        payload = {
+            "week_start": "2026-10-26",
+            "week_end": "2026-11-02",
+            "parents": [self._group(1001), self._group(1002, "Ota")],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.json"
+            bot = AsyncMock()
+            with patch.object(
+                backend_client, "weekly_digest", new=AsyncMock(return_value=payload)
+            ) as api:
+                sent = asyncio.run(
+                    weekly_digest.run_digest_round(
+                        bot, now=self.SUNDAY, state_path=state
+                    )
+                )
+            self.assertEqual(sent, 2)
+            self.assertEqual(bot.send_message.await_count, 2)
+            self.assertEqual(api.await_count, 1)
+            saved = json.loads(state.read_text(encoding="utf-8"))
+            self.assertEqual(saved, {"week": "2026-10-26", "sent": [1001, 1002]})
+
+            with patch.object(
+                backend_client, "weekly_digest", new=AsyncMock(return_value=payload)
+            ):
+                again = asyncio.run(
+                    weekly_digest.run_digest_round(
+                        bot, now=self.SUNDAY, state_path=state
+                    )
+                )
+            self.assertEqual(again, 0)
+            self.assertEqual(bot.send_message.await_count, 2)  # nothing re-sent
+
+    def test_blocked_parent_is_not_retried_forever(self):
+        payload = {
+            "week_start": "2026-10-26",
+            "week_end": "2026-11-02",
+            "parents": [self._group(1003)],
+        }
+
+        async def forbidden(*args, **kwargs):
+            raise TelegramForbiddenError(
+                method=SimpleNamespace(), message="Forbidden: bot was blocked by the user"
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.json"
+            bot = AsyncMock()
+            bot.send_message = AsyncMock(side_effect=forbidden)
+            with patch.object(
+                backend_client, "weekly_digest", new=AsyncMock(return_value=payload)
+            ):
+                sent = asyncio.run(
+                    weekly_digest.run_digest_round(
+                        bot, now=self.SUNDAY, state_path=state
+                    )
+                )
+            self.assertEqual(sent, 0)
+            self.assertIn(1003, json.loads(state.read_text(encoding="utf-8"))["sent"])
+
+    def test_not_due_and_backend_offline_stay_silent(self):
+        bot = AsyncMock()
+        with patch.object(
+            backend_client, "weekly_digest", new=AsyncMock()
+        ) as api:
+            before = datetime(2026, 11, 1, 12, 30, tzinfo=timezone.utc)
+            self.assertEqual(
+                asyncio.run(
+                    weekly_digest.run_digest_round(
+                        bot, now=before, state_path=Path(tempfile.gettempdir()) / "x.json"
+                    )
+                ),
+                0,
+            )
+            api.assert_not_awaited()
+
+            with patch.object(
+                backend_client,
+                "weekly_digest",
+                new=AsyncMock(side_effect=backend_client.BackendOffline("down")),
+            ):
+                self.assertEqual(
+                    asyncio.run(
+                        weekly_digest.run_digest_round(
+                            bot, now=self.SUNDAY, state_path=Path(tempfile.gettempdir()) / "y.json"
+                        )
+                    ),
+                    0,
+                )
+            bot.send_message.assert_not_awaited()
+
+    def test_pupil_panel_shows_link_and_unlink_button(self):
+        target = AsyncMock()
+        with patch.object(
+            backend_client,
+            "parent_status",
+            new=AsyncMock(return_value={"linked": False, "parent_name": None}),
+        ), patch.object(
+            backend_client,
+            "parent_code",
+            new=AsyncMock(return_value={"code": "ABC234", "linked": False}),
+        ):
+            asyncio.run(start_handlers.show_parent_panel(target, 555001))
+        text = target.answer.await_args.args[0]
+        self.assertIn("ABC234", text)
+        self.assertIn("t.me/", text)
+        self.assertIn("/start ABC234", text)
+        markup = target.answer.await_args.kwargs["reply_markup"]
+        callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertNotIn("pr:off", callbacks)
+
+        target2 = AsyncMock()
+        with patch.object(
+            backend_client,
+            "parent_status",
+            new=AsyncMock(return_value={"linked": True, "parent_name": "Ona"}),
+        ):
+            asyncio.run(start_handlers.show_parent_panel(target2, 555001))
+        self.assertIn("ulangan", target2.answer.await_args.args[0])
+        markup2 = target2.answer.await_args.kwargs["reply_markup"]
+        callbacks2 = [b.callback_data for row in markup2.inline_keyboard for b in row]
+        self.assertIn("pr:off", callbacks2)
+
+    def test_deep_link_confirms_parent_link(self):
+        message = SimpleNamespace(
+            text="/start ABC234",
+            from_user=SimpleNamespace(id=1001, first_name="Ona"),
+            answer=AsyncMock(),
+        )
+        with patch.object(
+            backend_client,
+            "link_parent",
+            new=AsyncMock(
+                return_value={"pupil_first_name": "Aziz", "grade_name": "1-sinf"}
+            ),
+        ) as link:
+            asyncio.run(start_handlers.cmd_start_parent_code(message))
+        link.assert_awaited_once_with("ABC234", 1001, "Ona")
+        text = message.answer.await_args.args[0]
+        self.assertIn("Bog‘landi", text)
+        self.assertIn("Aziz", text)
+
+    def test_parent_menu_button_and_callbacks_are_wired(self):
+        markup = kb.main_menu_keyboard("https://example.com/app")
+        callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
+        self.assertIn("nav:parent", callbacks)
+        handlers = {
+            handler.callback.__name__
+            for handler in start_handlers.router.callback_query.handlers
+        }
+        self.assertIn("cb_parent", handlers)
+        self.assertIn("cb_parent_off", handlers)
+
+
+
     """kind="matching" questions: numbered prompts, lettered options, typed map."""
 
     PROMPTS = [{"id": 201, "text": "Olma"}, {"id": 202, "text": "Banan"}]

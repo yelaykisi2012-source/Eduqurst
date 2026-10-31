@@ -141,6 +141,39 @@ async def progress(telegram_id: int) -> dict[str, Any]:
     return await _call("GET", "/pupil/progress", params={"telegram_id": telegram_id})
 
 
+# ---------- parent link + weekly digest ----------
+
+async def parent_status(telegram_id: int) -> dict[str, Any]:
+    return await _call("GET", "/parent/status", params={"telegram_id": telegram_id})
+
+
+async def parent_code(telegram_id: int) -> dict[str, Any]:
+    return await _call("POST", "/parent/code", params={"telegram_id": telegram_id})
+
+
+async def link_parent(
+    code: str, parent_telegram_id: int, parent_name: str = ""
+) -> dict[str, Any]:
+    return await _call(
+        "POST", "/parent/link",
+        json_body={
+            "code": code,
+            "parent_telegram_id": parent_telegram_id,
+            "parent_name": parent_name,
+        },
+    )
+
+
+async def unlink_parent(telegram_id: int) -> None:
+    await _call("POST", "/parent/unlink", json_body={"telegram_id": telegram_id})
+
+
+async def weekly_digest(week_start: str) -> dict[str, Any]:
+    return await _call(
+        "GET", "/parents/weekly-digest", params={"week_start": week_start}
+    )
+
+
 # ---------- admin-facing (backend double-checks ADMIN_TELEGRAM_IDS) ----------
 
 async def admin_overview(telegram_id: int) -> list[dict[str, Any]]:
