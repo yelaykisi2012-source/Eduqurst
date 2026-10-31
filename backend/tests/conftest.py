@@ -10,7 +10,7 @@ import hmac
 import json
 import os
 import time
-from urllib.parse import urlencode
+from urllib.parse import quote
 
 # Env must be set BEFORE importing any app module (config/db read it at import).
 os.environ["DATABASE_URL"] = "sqlite:///./test_eduquest.db"
@@ -33,7 +33,14 @@ TEST_BOT_TOKEN = os.environ["BOT_TOKEN"]
 def make_init_data(
     user: dict, *, tamper: bool = False, auth_date: int | None = None
 ) -> str:
-    """Forge valid initData. `auth_date=0` omits the field entirely."""
+    """Forge valid initData EXACTLY the way Telegram does.
+
+    Telegram percent-encodes each value (a space stays %20) and signs the
+    RAW, still-encoded `key=value` pairs (excluding `hash`), sorted by key,
+    joined with newlines. If this helper signed a re-encoded string instead,
+    it would pass against a buggy backend and miss the real bug.
+    `auth_date=0` omits the field entirely.
+    """
     params: dict[str, str] = {
         "query_id": "testquery",
         "user": json.dumps(user, separators=(",", ":")),
@@ -42,13 +49,16 @@ def make_init_data(
         params["auth_date"] = str(int(time.time()))
     elif auth_date > 0:
         params["auth_date"] = str(auth_date)
-    check_string = urlencode(sorted(params.items()))
+    check_string = "\n".join(
+        f"{k}={quote(v, safe='')}" for k, v in sorted(params.items())
+    )
     secret = hmac.new(b"WebAppData", TEST_BOT_TOKEN.encode(), hashlib.sha256).digest()
     digest = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
     if tamper:
         digest = ("0" * len(digest))  # broken signature
-    params["hash"] = digest
-    return urlencode(sorted(params.items()))
+    parts = [f"{k}={quote(v, safe='')}" for k, v in sorted(params.items())]
+    parts.append(f"hash={digest}")
+    return "&".join(parts)
 
 
 @pytest.fixture(scope="session", autouse=True)

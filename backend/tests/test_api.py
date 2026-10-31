@@ -31,6 +31,19 @@ def test_login_rejects_tampered_hash(client: TestClient):
     assert resp.status_code == 401
 
 
+def test_login_accepts_names_with_spaces(client: TestClient):
+    # Telegram percent-encodes a space in names as %20 and signs the RAW
+    # string. Decode-then-re-encode would turn it into '+' and break every
+    # real login — this regression test catches exactly that bug.
+    data = make_init_data(
+        {"id": 555003, "first_name": "Ali Karim", "last_name": "Said o'g'li",
+         "username": "ali_test"}
+    )
+    resp = client.post("/api/auth/telegram", json={"init_data": data})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["first_name"] == "Ali Karim"
+
+
 def test_login_rejects_missing_stale_or_future_auth_date(client: TestClient):
     user = {"id": 555010, "first_name": "Vaqt"}
     # missing auth_date (auth_date=0 means "omit the field")
