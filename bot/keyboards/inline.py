@@ -96,8 +96,22 @@ def lessons_keyboard(subject: dict) -> InlineKeyboardMarkup:
 
 
 def lesson_actions_keyboard(lesson: dict) -> InlineKeyboardMarkup:
+    """Lesson actions + the four content formats as real link buttons."""
     lid = lesson["id"]
     rows = []
+    for m in lesson.get("materials", []):
+        content = m.get("content", "")
+        if not content.lower().startswith(("http://", "https://")):
+            continue  # written notes are printed in the message text
+        if m.get("kind") == "video":
+            rows.append([InlineKeyboardButton(text=f"▶️ {m['title']}", url=content)])
+        elif m.get("kind") == "pdf":
+            rows.append([InlineKeyboardButton(text=f"📄 {m['title']}", url=content)])
+        elif m.get("kind") == "live":
+            rows.append([InlineKeyboardButton(text=f"🔴 Jonli dars — {m['title']}", url=content)])
+    video = lesson.get("video_url") or ""
+    if video.lower().startswith(("http://", "https://")):
+        rows.append([InlineKeyboardButton(text="🎬 Video darsni ko‘rish", url=video)])
     if not lesson.get("viewed"):
         rows.append([_btn("✅ O‘qib bo‘ldim", f"vw:{lid}")])
     rows.append([_btn("🧩 Testni boshlash", f"qz:{lid}")])
@@ -138,10 +152,32 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
             [_btn("📊 Holat", "adm:stat")],
             [_btn("🏫 Fan qo‘shish", "adm:addsubject")],
             [_btn("📖 Dars qo‘shish", "adm:addlesson")],
+            [_btn("🎞 Material qo‘shish", "adm:addmaterial")],
             [_btn("❓ Savol qo‘shish", "adm:addquestion")],
             [_btn("⬅️ Menyu", "nav:menu")],
         ]
     )
+
+
+MATERIAL_KINDS = [
+    ("video", "▶️ Video"),
+    ("pdf", "📄 PDF"),
+    ("live", "🔴 Jonli dars"),
+    ("text", "📝 Yozma matn"),
+]
+
+
+def material_kind_keyboard() -> InlineKeyboardMarkup:
+    rows, current = [], []
+    for kind, label in MATERIAL_KINDS:
+        current.append(_btn(label, f"mk:{kind}"))
+        if len(current) == 2:
+            rows.append(current)
+            current = []
+    if current:
+        rows.append(current)
+    rows.append([_btn("⬅️ Bekor", "adm:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def admin_pick_row(buttons: list[tuple[str, str]], back_cb: str = "nav:admin") -> InlineKeyboardMarkup:

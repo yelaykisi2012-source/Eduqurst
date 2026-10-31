@@ -16,6 +16,8 @@ import type {
   Grade,
   GradeOverview,
   LessonDetail,
+  Material,
+  MaterialCreate,
   Profile,
   Progress,
   Quiz,
@@ -129,4 +131,7 @@ export const api = {
     lessonId: number,
     body: { text: string; kind: string; options: { text: string; is_correct: boolean }[] },
   ) => req<{ id: number }>(`/api/admin/lessons/${lessonId}/questions`, { method: "POST", token, body }),
+
+  adminCreateMaterial: (token: string, lessonId: number, body: MaterialCreate) =>
+    req<Material>(`/api/admin/lessons/${lessonId}/materials`, { method: "POST", token, body }),
 };

@@ -537,3 +537,73 @@ def test_internal_admin_guard_and_creation_flow(client: TestClient):
     botq = next(s for s in subjects if s["name"] == "Botqurilish")
     assert botq["lessons"][0]["title"] == "Poydevor"
     assert botq["lessons"][0]["unlocked"] is True
+
+
+def test_lesson_four_formats_material_flow(client: TestClient):
+    """Admin posts all four lesson formats; pupils receive them in lesson detail."""
+    admin = login_as(client, {"id": 999000111, "first_name": "Admin"})
+    subj = client.post(
+        "/api/admin/subjects",
+        json={"grade_id": 8, "name": "Media darslar", "emoji": "🎬"},
+        headers=admin,
+    ).json()
+    lesson = client.post(
+        f"/api/admin/subjects/{subj['id']}/lessons",
+        json={
+            "title": "To‘rt format",
+            "explanation": "Video, PDF, yozma va jonli dars — hammasi bitta darsda.",
+        },
+        headers=admin,
+    ).json()
+
+    formats = [
+        ("video", "Video dars", "https://youtu.be/dQw4w9WgXcQ"),
+        ("pdf", "Mashqlar to‘plami", "https://example.com/mashqlar.pdf"),
+        ("live", "Dushanba 18:00", "https://meet.example.com/xona-1"),
+        ("text", "Qisqa eslatma", "Asosiy qoidalar: ..."),
+    ]
+    ids = []
+    for kind, title, content in formats:
+        r = client.post(
+            f"/api/admin/lessons/{lesson['id']}/materials",
+            json={"kind": kind, "title": title, "content": content},
+            headers=admin,
+        )
+        assert r.status_code == 201, r.text
+        ids.append(r.json()["id"])
+
+    # URL-required kinds must reject free text; unknown kinds are rejected too
+    assert client.post(
+        f"/api/admin/lessons/{lesson['id']}/materials",
+        json={"kind": "video", "title": "Buzuq", "content": "havola emas"},
+        headers=admin,
+    ).status_code == 422
+    assert client.post(
+        f"/api/admin/lessons/{lesson['id']}/materials",
+        json={"kind": "audio", "title": "Buzuq", "content": "https://x.uz/a.mp3"},
+        headers=admin,
+    ).status_code == 422
+
+    # material_count shows up for admins
+    lessons = client.get(f"/api/admin/subjects/{subj['id']}/lessons", headers=admin).json()
+    assert lessons[0]["material_count"] == 4
+
+    # a pupil reads all four formats in the lesson payload
+    pupil = login_as(client, {"id": 888000444, "first_name": "Media"})
+    pick_grade(client, pupil, "8-sinf")
+    detail = client.get(f"/api/lessons/{lesson['id']}", headers=pupil).json()
+    kinds = [(m["kind"], m["content"]) for m in detail["materials"]]
+    assert kinds[0] == ("video", "https://youtu.be/dQw4w9WgXcQ")
+    assert kinds[1][0] == "pdf" and kinds[1][1].endswith(".pdf")
+    assert kinds[2][0] == "live" and "meet" in kinds[2][1]
+    assert kinds[3][0] == "text"
+
+    # ... and through the bot's internal endpoint as well
+    client.post("/api/internal/pupils", json={"telegram_id": 777504, "first_name": "Media"}, headers=_h())
+    client.post("/api/internal/pupil/grade", json={"telegram_id": 777504, "grade_id": 8}, headers=_h())
+    bot_detail = client.get(
+        f"/api/internal/pupil/lesson/{lesson['id']}",
+        params={"telegram_id": 777504},
+        headers=_h(),
+    ).json()
+    assert {m["kind"] for m in bot_detail["materials"]} == {"video", "pdf", "live", "text"}

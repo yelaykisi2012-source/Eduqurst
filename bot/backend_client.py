@@ -25,7 +25,7 @@ import config
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT = aiohttp.ClientTimeout(total=8)
+_TIMEOUT = aiohttp.ClientTimeout(total=20)  # Render free tier can be slow to wake
 
 
 class BackendOffline(Exception):
@@ -178,3 +178,28 @@ async def admin_create_question(
         "POST", f"/admin/lessons/{lesson_id}/questions",
         json_body={"telegram_id": telegram_id, "data": {"text": text, "kind": kind, "options": options}},
     )
+
+
+async def admin_create_material(
+    telegram_id: int, lesson_id: int, kind: str, title: str, content: str,
+) -> dict[str, Any]:
+    """kind: video | pdf | live | text (content = URL or written notes)."""
+    return await _call(
+        "POST", f"/admin/lessons/{lesson_id}/materials",
+        json_body={
+            "telegram_id": telegram_id,
+            "data": {"kind": kind, "title": title, "content": content},
+        },
+    )
+
+
+async def health() -> bool:
+    """Cheap keep-alive ping for the Render backend (best-effort)."""
+    if not config.API_URL:
+        return False
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+            async with session.get(f"{config.API_URL}/api/health") as resp:
+                return resp.status == 200
+    except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
+        return False

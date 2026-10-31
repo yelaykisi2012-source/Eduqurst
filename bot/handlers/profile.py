@@ -85,14 +85,14 @@ async def show_achievements(target: Message) -> None:
 
 @router.callback_query(F.data == "nav:profile")
 async def cb_profile(cb: CallbackQuery) -> None:
+    await cb.answer()  # stop the spinner immediately
     await show_profile(cb.message)
-    await cb.answer()
 
 
 @router.callback_query(F.data == "nav:ach")
 async def cb_achievements(cb: CallbackQuery) -> None:
+    await cb.answer()  # stop the spinner immediately
     await show_achievements(cb.message)
-    await cb.answer()
 
 
 @router.message(Command("profile"))

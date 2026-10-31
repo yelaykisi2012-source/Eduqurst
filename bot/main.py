@@ -16,11 +16,16 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 
+import backend_client
 import config
 from handlers import admin as admin_handlers
 from handlers import learn as learn_handlers
 from handlers import profile as profile_handlers
 from handlers import start as start_handlers
+
+# Render free tier sleeps after ~15 min without traffic. A light ping every
+# 10 min keeps the API warm so pupils never stare at a cold start.
+KEEPALIVE_SECONDS = 600
 
 
 def setup_logging() -> None:
@@ -28,6 +33,16 @@ def setup_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
+
+
+async def keepalive_loop(logger: logging.Logger) -> None:
+    """Ping the backend forever; health() never raises and logs failures."""
+    while True:
+        try:
+            await backend_client.health()
+        except Exception:  # pragma: no cover — health() already swallows errors
+            logger.warning("Keep-alive ping xato bo'ldi", exc_info=True)
+        await asyncio.sleep(KEEPALIVE_SECONDS)
 
 
 async def main() -> None:
@@ -72,7 +87,11 @@ async def main() -> None:
     await bot.delete_webhook(drop_pending_updates=True)
 
     logger.info("EduQuest bot ishga tushdi. To'xtatish: Ctrl+C")
-    await dp.start_polling(bot)
+    keepalive = asyncio.create_task(keepalive_loop(logger))
+    try:
+        await dp.start_polling(bot)
+    finally:
+        keepalive.cancel()
 
 
 if __name__ == "__main__":

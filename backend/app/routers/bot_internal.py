@@ -29,9 +29,11 @@ from app.routers import me as me_api
 from app.routers import quiz as quiz_api
 from app.schemas import (
     AdminLessonOut,
+    AdminMaterialOut,
     AdminQuestionOut,
     AdminSubjectOut,
     BotAdminLessonCreate,
+    BotAdminMaterialCreate,
     BotAdminQuestionCreate,
     BotAdminSubjectCreate,
     BotPupilUpsert,
@@ -230,5 +232,13 @@ def internal_admin_create_lesson(subject_id: int, body: BotAdminLessonCreate, db
 @router.post("/admin/lessons/{lesson_id}/questions", response_model=AdminQuestionOut, status_code=201, dependencies=[Depends(require_bot_token)])
 def internal_admin_create_question(lesson_id: int, body: BotAdminQuestionCreate, db: Session = Depends(get_db)):
     return admin_api.create_question(
+        lesson_id=lesson_id, body=body.data, db=db, admin=_internal_admin(db, body.telegram_id)
+    )
+
+
+@router.post("/admin/lessons/{lesson_id}/materials", response_model=AdminMaterialOut, status_code=201, dependencies=[Depends(require_bot_token)])
+def internal_admin_create_material(lesson_id: int, body: BotAdminMaterialCreate, db: Session = Depends(get_db)):
+    """video / pdf / live / text — the four lesson formats, from the bot too."""
+    return admin_api.create_material(
         lesson_id=lesson_id, body=body.data, db=db, admin=_internal_admin(db, body.telegram_id)
     )

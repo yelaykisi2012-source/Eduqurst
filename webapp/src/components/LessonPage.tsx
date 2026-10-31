@@ -5,8 +5,63 @@
  */
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
-import type { LessonDetail } from "../types";
+import type { LessonDetail, Material } from "../types";
 import { BackButton } from "./SubjectLessons";
+
+const isLink = (value: string) => /^https?:\/\//i.test(value.trim());
+
+/** One lesson material in the four supported formats (+ legacy image). */
+function MaterialCard({ material }: { material: Material }) {
+  const { kind, title, content } = material;
+
+  if (kind === "image" || (kind === "text" && isLink(content))) {
+    return (
+      <div className="mt-3 rounded-2xl border-2 border-blue-100 bg-blue-50 p-4">
+        {title && <p className="text-sm font-bold text-blue-800">📌 {title}</p>}
+        {kind === "image" ? (
+          <img src={content} alt={title} className="mt-2 w-full rounded-xl" />
+        ) : (
+          <a
+            href={content}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 block break-all text-sm font-semibold text-blue-600 underline"
+          >
+            {content}
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (kind === "video" || kind === "pdf" || kind === "live") {
+    const icon = kind === "video" ? "▶️" : kind === "pdf" ? "📄" : "🔴";
+    const label = kind === "video" ? "Videoni ko‘rish" : kind === "pdf" ? "PDF’ni ochish" : "Jonli darsga qo‘shilish";
+    return (
+      <a
+        href={content}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-3 flex items-center gap-3 rounded-2xl border-2 border-blue-200 bg-white px-4 py-3 shadow-sm active:scale-[0.99]"
+      >
+        <span className="text-xl">{icon}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-bold text-blue-900">{title}</span>
+          <span className="block text-xs font-semibold text-blue-500">{label}</span>
+        </span>
+        <span className="text-blue-400">→</span>
+      </a>
+    );
+  }
+
+  // text (yozma matn) and anything unknown → printed notes
+  return (
+    <div className="mt-3 rounded-2xl border-2 border-blue-100 bg-blue-50 p-4">
+      {title && <p className="text-sm font-bold text-blue-800">📝 {title}</p>}
+      <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-blue-900">{content}</p>
+    </div>
+  );
+}
 
 export default function LessonPage({
   token,
@@ -78,15 +133,19 @@ export default function LessonPage({
         {lesson.explanation}
       </article>
 
+      {lesson.video_url && isLink(lesson.video_url) && (
+        <a
+          href={lesson.video_url}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-br from-rose-500 to-red-600 px-4 py-3 text-sm font-bold text-white shadow-md active:scale-[0.99]"
+        >
+          🎬 Video darsni ko‘rish
+        </a>
+      )}
+
       {lesson.materials.map((m) => (
-        <div key={m.id} className="mt-3 rounded-2xl border-2 border-blue-100 bg-blue-50 p-4">
-          {m.title && <p className="text-sm font-bold text-blue-800">📌 {m.title}</p>}
-          {m.kind === "image" ? (
-            <img src={m.content} alt={m.title} className="mt-2 w-full rounded-xl" />
-          ) : (
-            <p className="mt-1 whitespace-pre-line text-sm text-blue-900">{m.content}</p>
-          )}
-        </div>
+        <MaterialCard key={m.id} material={m} />
       ))}
 
       <div className="mt-6 space-y-3">

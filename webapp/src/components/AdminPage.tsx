@@ -38,6 +38,7 @@ export default function AdminPage({ token, notify }: Props) {
   const [showSubjectForm, setShowSubjectForm] = useState(false);
   const [showLessonForm, setShowLessonForm] = useState(false);
   const [questionLessonId, setQuestionLessonId] = useState<number | null>(null);
+  const [materialLessonId, setMaterialLessonId] = useState<number | null>(null);
   const [formKey, setFormKey] = useState(0); // remount forms after a successful add
 
   const loadOverview = useCallback(async () => {
@@ -72,12 +73,14 @@ export default function AdminPage({ token, notify }: Props) {
     setShowSubjectForm(false);
     setShowLessonForm(false);
     setQuestionLessonId(null);
+    setMaterialLessonId(null);
   };
 
   const pickSubject = (s: number) => {
     setSubjectId(s);
     setShowLessonForm(false);
     setQuestionLessonId(null);
+    setMaterialLessonId(null);
     void loadLessons(s);
   };
 
@@ -87,6 +90,7 @@ export default function AdminPage({ token, notify }: Props) {
     setShowSubjectForm(false);
     setShowLessonForm(false);
     setQuestionLessonId(null);
+    setMaterialLessonId(null);
     setFormKey((k) => k + 1);
     await loadOverview();
     if (subjectId !== null) void loadLessons(subjectId);
@@ -208,22 +212,42 @@ export default function AdminPage({ token, notify }: Props) {
                   <span className="text-sm font-semibold text-slate-800">
                     {l.level_order}. {l.title}
                   </span>
-                  <span className="text-xs text-slate-400">{l.question_count} savol</span>
+                  <span className="text-xs text-slate-400">
+                    {l.question_count} savol · {l.material_count} material
+                  </span>
                 </div>
-                <button
-                  onClick={() =>
-                    setQuestionLessonId((cur) => (cur === l.id ? null : l.id))
-                  }
-                  className="mt-1.5 text-xs font-bold text-blue-500 underline-offset-2 hover:underline"
-                >
-                  {questionLessonId === l.id ? "Savol formasini yopish ▲" : "+ Savol qo‘shish"}
-                </button>
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                  <button
+                    onClick={() =>
+                      setQuestionLessonId((cur) => (cur === l.id ? null : l.id))
+                    }
+                    className="text-xs font-bold text-blue-500 underline-offset-2 hover:underline"
+                  >
+                    {questionLessonId === l.id ? "Savol formasini yopish ▲" : "+ Savol qo‘shish"}
+                  </button>
+                  <button
+                    onClick={() =>
+                      setMaterialLessonId((cur) => (cur === l.id ? null : l.id))
+                    }
+                    className="text-xs font-bold text-emerald-600 underline-offset-2 hover:underline"
+                  >
+                    {materialLessonId === l.id ? "Material formasini yopish ▲" : "🎞 + Material"}
+                  </button>
+                </div>
                 {questionLessonId === l.id && (
                   <QuestionForm
                     key={formKey}
                     token={token}
                     lessonId={l.id}
                     onDone={() => afterCreate("Savol")}
+                  />
+                )}
+                {materialLessonId === l.id && (
+                  <MaterialForm
+                    key={formKey}
+                    token={token}
+                    lessonId={l.id}
+                    onDone={() => afterCreate("Material")}
                   />
                 )}
               </div>
@@ -494,6 +518,107 @@ function QuestionForm({
       {err && <p className="mt-2 text-xs font-semibold text-rose-600">{err}</p>}
       <button onClick={submit} disabled={busy || !ready} className={btnPrimary}>
         {busy ? "Saqlanmoqda…" : "Savol saqlash"}
+      </button>
+    </div>
+  );
+}
+
+const MATERIAL_KINDS = [
+  { kind: "video", label: "▶️ Video" },
+  { kind: "pdf", label: "📄 PDF" },
+  { kind: "live", label: "🔴 Jonli dars" },
+  { kind: "text", label: "📝 Yozma matn" },
+] as const;
+
+const isUrl = (value: string) => /^https?:\/\//i.test(value.trim());
+
+function MaterialForm({
+  token,
+  lessonId,
+  onDone,
+}: {
+  token: string;
+  lessonId: number;
+  onDone: () => Promise<void> | void;
+}) {
+  const [kind, setKind] = useState<string>("video");
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const needsUrl = kind !== "text";
+  const ready =
+    title.trim().length >= 2 &&
+    content.trim().length >= 1 &&
+    (!needsUrl || isUrl(content));
+
+  const submit = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await api.adminCreateMaterial(token, lessonId, {
+        kind,
+        title: title.trim(),
+        content: content.trim(),
+      });
+      await onDone();
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+      <label className={label}>Material formati</label>
+      <div className="grid grid-cols-2 gap-2">
+        {MATERIAL_KINDS.map((k) => (
+          <button
+            key={k.kind}
+            onClick={() => setKind(k.kind)}
+            className={
+              kind === k.kind
+                ? "rounded-lg bg-emerald-600 px-2 py-1.5 text-xs font-bold text-white"
+                : "rounded-lg border border-emerald-200 bg-white px-2 py-1.5 text-xs font-semibold text-emerald-700"
+            }
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
+
+      <label className={label}>Sarlavha</label>
+      <input
+        className={input}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        maxLength={160}
+        placeholder={kind === "live" ? "Masalan: Jonli dars — 5-noyabr" : "Masalan: Sonlarni qo‘shish"}
+      />
+
+      <label className={label}>{needsUrl ? "Havola (https:// …)" : "Yozma matn"}</label>
+      <textarea
+        className={`${input} min-h-20`}
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        maxLength={5000}
+        placeholder={
+          needsUrl
+            ? "https://youtu.be/… yoki https://…/hujjat.pdf"
+            : "O‘quvchi dars ichida o‘qiydigan qisqa tushuntirish"
+        }
+      />
+      {needsUrl && content.trim() !== "" && !isUrl(content) && (
+        <p className="mt-1 text-xs font-semibold text-rose-600">
+          Havola http:// yoki https:// bilan boshlanishi kerak.
+        </p>
+      )}
+
+      {err && <p className="mt-2 text-xs font-semibold text-rose-600">{err}</p>}
+      <button onClick={submit} disabled={busy || !ready} className={btnPrimary}>
+        {busy ? "Saqlanmoqda…" : "Material saqlash"}
       </button>
     </div>
   );

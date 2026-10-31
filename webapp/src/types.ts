@@ -39,6 +39,7 @@ export interface AdminLesson {
   level_order: number;
   subject_name: string;
   question_count: number;
+  material_count: number;
 }
 
 export interface LessonSummary {
@@ -74,12 +75,25 @@ export interface LessonDetail {
   passed: boolean;
 }
 
+/**
+ * Lesson material. `kind` is one of:
+ *   video | pdf | live  → content is an external URL
+ *   text                → content is written explanation
+ *   image | slide       → legacy formats (image URL / slide text)
+ */
 export interface Material {
   id: number;
-  kind: string; // slide | image | text
+  kind: string;
   title: string;
   content: string;
   order_index: number;
+}
+
+/** Payload for POST /api/admin/lessons/{id}/materials. */
+export interface MaterialCreate {
+  kind: string;
+  title: string;
+  content: string;
 }
 
 /** Quiz fetched from GET /api/lessons/{id}/quiz — never contains answers. */

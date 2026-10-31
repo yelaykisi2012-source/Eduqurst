@@ -78,6 +78,27 @@ class AdminLessonOut(BaseModel):
     level_order: int
     subject_name: str
     question_count: int
+    material_count: int = 0
+
+
+class AdminMaterialCreate(BaseModel):
+    # The four lesson formats a teacher can post + optional extras:
+    #   video  -> content is a URL (YouTube, Vimeo, ...)
+    #   pdf    -> content is a URL to the PDF file
+    #   live   -> content is a URL to the live room (Zoom/Meet/YouTube Live);
+    #             title carries the schedule, e.g. "Dushanba 18:00"
+    #   text   -> written notes (free text, no URL)
+    kind: str = Field(default="text", pattern="^(video|pdf|live|text|image|slide)$")
+    title: str = Field(min_length=2, max_length=160)
+    content: str = Field(min_length=1, max_length=5000)
+
+
+class AdminMaterialOut(BaseModel):
+    id: int
+    kind: str
+    title: str
+    content: str
+    order_index: int
 
 
 class AdminOptionCreate(BaseModel):
@@ -229,6 +250,11 @@ class BotAdminLessonCreate(BaseModel):
 class BotAdminQuestionCreate(BaseModel):
     telegram_id: int = Field(ge=1)
     data: AdminQuestionCreate
+
+
+class BotAdminMaterialCreate(BaseModel):
+    telegram_id: int = Field(ge=1)
+    data: AdminMaterialCreate
 
 
 # ---------- progress / profile ----------

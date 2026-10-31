@@ -109,6 +109,7 @@ async def show_grade_picker(target: Message, prefix: str = "gr") -> None:
 @router.callback_query(F.data.startswith("gr:"))
 async def cb_pick_grade(cb: CallbackQuery, state: FSMContext) -> None:
     grade_id = int(cb.data.split(":")[1])
+    await cb.answer()  # stop the spinner immediately
     try:
         profile = await backend_client.set_grade(cb.from_user.id, grade_id)
     except backend_client.BackendOffline:
@@ -117,7 +118,6 @@ async def cb_pick_grade(cb: CallbackQuery, state: FSMContext) -> None:
     except backend_client.BackendBusiness as e:
         await _business(cb.message, e)
         return
-    await cb.answer(f"Sinf: {profile['grade_name']} ✅", show_alert=False)
     await cb.message.answer(
         f"🎉 Ajoyib! Siz endi <b>{esc(profile['grade_name'])}</b> o‘quchisisiz.\n"
         "Keling, darslarni ochamiz!",
@@ -134,8 +134,8 @@ async def cmd_lessons(message: Message) -> None:
 
 @router.callback_query(F.data == "nav:subjects")
 async def cb_subjects(cb: CallbackQuery) -> None:
+    await cb.answer()  # stop the spinner immediately
     await show_subjects(cb.message)
-    await cb.answer()
 
 
 async def show_subjects(target: Message) -> None:
@@ -165,6 +165,7 @@ async def show_subjects(target: Message) -> None:
 @router.callback_query(F.data.startswith("su:"))
 async def cb_subject(cb: CallbackQuery) -> None:
     subject_id = int(cb.data.split(":")[1])
+    await cb.answer()  # stop the spinner immediately
     try:
         subjects = await backend_client.subjects(cb.from_user.id)
     except backend_client.BackendOffline:
@@ -183,7 +184,6 @@ async def cb_subject(cb: CallbackQuery) -> None:
         "✅ tugatilgan · 📖 o‘qilgan · ▶️ ochiq · 🔒 qulflangan",
         reply_markup=lessons_keyboard(subject),
     )
-    await cb.answer()
 
 
 # ------------------------------------------------------------------ lesson
@@ -191,6 +191,7 @@ async def cb_subject(cb: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("le:"))
 async def cb_lesson(cb: CallbackQuery) -> None:
     lesson_id = int(cb.data.split(":")[1])
+    await cb.answer()  # stop the spinner immediately
     try:
         lesson = await backend_client.lesson(cb.from_user.id, lesson_id)
     except backend_client.BackendOffline:
@@ -205,13 +206,24 @@ async def cb_lesson(cb: CallbackQuery) -> None:
         f"{esc(lesson['explanation'])}\n\n"
         f"⭐ Sovrin: <b>{lesson['stars_reward']}</b> · o‘tish chegarasi: <b>{lesson['pass_threshold_percent']}%</b>"
     )
+    # Written notes / slides are printed here; video, PDF and live lessons
+    # become real link buttons (see lesson_actions_keyboard).
+    extras = [
+        m for m in lesson.get("materials", [])
+        if m["kind"] in ("text", "slide") or not str(m.get("content", "")).lower().startswith(("http://", "https://"))
+    ]
+    for m in extras:
+        text += f"\n\n📝 <b>{esc(m['title'])}</b>\n{esc(m['content'])}"
+    link_kinds = [m for m in lesson.get("materials", []) if m not in extras]
+    if link_kinds:
+        text += "\n\n🎬 Quyidagi tugmalar orqali dars materiallarini oching:"
     await send_long(cb.message, text, reply_markup=lesson_actions_keyboard(lesson))
-    await cb.answer()
 
 
 @router.callback_query(F.data.startswith("vw:"))
 async def cb_viewed(cb: CallbackQuery) -> None:
     lesson_id = int(cb.data.split(":")[1])
+    await cb.answer()  # stop the spinner immediately
     try:
         result = await backend_client.mark_viewed(cb.from_user.id, lesson_id)
     except backend_client.BackendOffline:
@@ -228,7 +240,6 @@ async def cb_viewed(cb: CallbackQuery) -> None:
         note += f"\n🏆 Yangi yutuq: <b>{esc(code)}</b>!"
     note += "\n\n🧩 Endi testni boshlashingiz mumkin (yuqoridagi tugma)."
     await cb.message.answer(note)
-    await cb.answer()
 
 
 # ------------------------------------------------------------------ quiz
@@ -260,6 +271,7 @@ async def _render_question(
 @router.callback_query(F.data.startswith("qz:"))
 async def cb_quiz(cb: CallbackQuery, state: FSMContext) -> None:
     lesson_id = int(cb.data.split(":")[1])
+    await cb.answer()  # stop the spinner immediately
     try:
         quiz = await backend_client.quiz(cb.from_user.id, lesson_id)
     except backend_client.BackendOffline:
@@ -272,7 +284,6 @@ async def cb_quiz(cb: CallbackQuery, state: FSMContext) -> None:
         cb.message, quiz["questions"], lesson_id, 0, {},
         state=state, quiz_title=quiz.get("lesson_title", "Test"),
     )
-    await cb.answer()
 
 
 def _answers_payload(answers: dict[str, Any]) -> list[dict[str, Any]]:
@@ -310,18 +321,19 @@ async def _finish_quiz(target: Message, state: FSMContext, lesson_id: int, answe
 
 @router.callback_query(QuizStates.running, F.data.startswith("qa:"))
 async def cb_answer(cb: CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()  # stop the spinner immediately
     _, idx, opt = cb.data.split(":")
     data = await state.get_data()
     questions = data["questions"]
     i = int(idx)
     if not (0 <= i < len(questions)) or i != data["index"]:
-        await cb.answer("Bu javob endigiga tegishli emas — joriy savolga javob bering 🙂", show_alert=True)
+        await cb.message.answer("Bu tugma eski — joriy savolga javob bering 🙂")
         return
     q = questions[i]
     try:
         option = q["options"][int(opt)]
     except (ValueError, IndexError):
-        await cb.answer("Variant topilmadi — qayta urinib ko‘ring.", show_alert=True)
+        await cb.message.answer("Variant topilmadi — qayta urinib ko‘ring.")
         return
     answers = data["answers"]
     answers[str(q["id"])] = {"option_id": option["id"]}
@@ -333,7 +345,6 @@ async def cb_answer(cb: CallbackQuery, state: FSMContext) -> None:
             cb.message, questions, data["lesson_id"], nxt, answers,
             state=state, quiz_title=data.get("quiz_title", "Test"),
         )
-    await cb.answer()
 
 
 @router.message(QuizStates.running, F.text)

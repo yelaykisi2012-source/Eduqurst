@@ -7,9 +7,12 @@ Two gates:
      alone can never grant admin powers.
 
 Flows (each is a small FSM asking one thing at a time):
-  🏫 Fan qo'shish   : sinf → nom → emoji
-  📖 Dars qo'shish  : sinf → fan → sarlavha → matn → ⭐ → chegara %
-  ❓ Savol qo'shish : sinf → fan → dars → savol → variantlar (* = to'g'ri)
+  🏫 Fan qo'shish      : sinf → nom → emoji
+  📖 Dars qo'shish     : sinf → fan → sarlavha → matn → ⭐ → chegara %
+  🎞 Material qo'shish : sinf → fan → dars → format → sarlavha → havola/matn
+  ❓ Savol qo'shish    : sinf → fan → dars → savol → variantlar (* = to'g'ri)
+
+Material formats: video (havola), pdf (havola), live (havola), text (yozma matn).
 """
 from __future__ import annotations
 
@@ -24,7 +27,13 @@ from aiogram.types import CallbackQuery, Message
 
 import backend_client
 import config
-from keyboards.inline import admin_menu_keyboard, admin_pick_row, grades_keyboard, main_menu_keyboard
+from keyboards.inline import (
+    admin_menu_keyboard,
+    admin_pick_row,
+    grades_keyboard,
+    main_menu_keyboard,
+    material_kind_keyboard,
+)
 
 logger = logging.getLogger(__name__)
 router = Router(name="admin")
@@ -43,6 +52,11 @@ class AdmStates(StatesGroup):
     lesson_text = State()     # text (may be long)
     lesson_stars = State()    # text: int or "skip"
     lesson_threshold = State()
+    material_subject = State()
+    material_lesson = State()
+    material_kind = State()     # button: video / pdf / live / text
+    material_title = State()    # text
+    material_content = State()  # text: URL (video/pdf/live) yoki matn (text)
     question_subject = State()
     question_lesson = State()
     question_text = State()
@@ -96,6 +110,7 @@ async def cb_stats(cb: CallbackQuery) -> None:
     if not _is_admin(cb.from_user.id):
         await cb.answer("🔐 Faqat adminlar.", show_alert=True)
         return
+    await cb.answer()
     try:
         overview = await backend_client.admin_overview(cb.from_user.id)
     except Exception as e:
@@ -112,7 +127,6 @@ async def cb_stats(cb: CallbackQuery) -> None:
         lines.append(f"{g['grade_name']}: " + ", ".join(parts))
     lines.append(f"\nJami darslar: <b>{total_lessons}</b>")
     await cb.message.answer("\n".join(lines))
-    await cb.answer()
 
 
 # ------------------------------------------------------------------ common: grade picker
@@ -121,6 +135,7 @@ async def _ask_grade(cb: CallbackQuery, state: FSMContext, flow: str, question: 
     if not _is_admin(cb.from_user.id):
         await cb.answer("🔐 Faqat adminlar.", show_alert=True)
         return
+    await cb.answer()  # stop the spinner before the API call
     try:
         grades = await backend_client.grades(cb.from_user.id)
     except Exception as e:
@@ -129,11 +144,11 @@ async def _ask_grade(cb: CallbackQuery, state: FSMContext, flow: str, question: 
     await state.set_state(AdmStates.pick_grade)
     await state.update_data(flow=flow)
     await cb.message.answer(question, reply_markup=grades_keyboard(grades, "ag"))
-    await cb.answer()
 
 
 @router.callback_query(AdmStates.pick_grade, F.data.startswith("ag:"))
 async def adm_grade_chosen(cb: CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()  # stop the spinner immediately — API calls follow
     data = await state.get_data()
     flow = data["flow"]
     grade_id = int(cb.data.split(":")[1])
@@ -156,6 +171,21 @@ async def adm_grade_chosen(cb: CallbackQuery, state: FSMContext) -> None:
         else:
             await state.set_state(AdmStates.lesson_subject)
             await cb.message.answer("Qaysi finga dars qo‘shamiz?", reply_markup=admin_pick_row(buttons, "adm:cancel"))
+    elif flow == "material":
+        try:
+            overview = await backend_client.admin_overview(tg)
+            grade = next(g for g in overview if g["grade_id"] == grade_id)
+            buttons = [(f"{s['emoji']} {s['name']}", f"ms:{s['id']}") for s in grade["subjects"]]
+        except Exception as e:
+            await _fail(cb.message, e)
+            return
+        if not buttons:
+            await cb.message.answer("Bu sinfda fan yo‘q — avval «🏫 Fan qo‘shish».")
+            await state.clear()
+        else:
+            await state.set_state(AdmStates.material_subject)
+            await cb.message.answer("Qaysi fandagi darsga material qo‘shamiz?",
+                                    reply_markup=admin_pick_row(buttons, "adm:cancel"))
     else:  # question
         try:
             overview = await backend_client.admin_overview(tg)
@@ -170,7 +200,6 @@ async def adm_grade_chosen(cb: CallbackQuery, state: FSMContext) -> None:
         else:
             await state.set_state(AdmStates.question_subject)
             await cb.message.answer("Qaysi fandga savol qo‘shamiz?", reply_markup=admin_pick_row(buttons, "adm:cancel"))
-    await cb.answer()
 
 
 @router.message(AdmStates.pick_grade, F.text)
@@ -294,6 +323,118 @@ async def adm_lesson_threshold(message: Message, state: FSMContext) -> None:
     )
 
 
+# ------------------------------------------------------------------ 🎞 material qo'shish
+
+@router.callback_query(F.data == "adm:addmaterial")
+async def adm_add_material(cb: CallbackQuery, state: FSMContext) -> None:
+    await _ask_grade(cb, state, "material", "🎞 Materialni qaysi sinfga qo‘shamiz? Sinfni tanlang:")
+
+
+@router.callback_query(AdmStates.material_subject, F.data.startswith("ms:"))
+async def adm_material_subject(cb: CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()
+    subject_id = int(cb.data.split(":")[1])
+    try:
+        lessons = await backend_client.admin_lessons(cb.from_user.id, subject_id)
+    except Exception as e:
+        await _fail(cb.message, e)
+        return
+    if not lessons:
+        await cb.message.answer("Bu fanda dars yo‘q — avval «📖 Dars qo‘shish».")
+        await state.clear()
+        return
+    buttons = [(f"{l['level_order']}. {l['title'][:40]}", f"ml:{l['id']}") for l in lessons]
+    await state.set_state(AdmStates.material_lesson)
+    await cb.message.answer("Qaysi darsga material qo‘shamiz?",
+                            reply_markup=admin_pick_row(buttons, "adm:cancel"))
+
+
+@router.message(AdmStates.material_subject, F.text)
+async def adm_material_subject_text(message: Message) -> None:
+    await _press_a_button(message)
+
+
+@router.callback_query(AdmStates.material_lesson, F.data.startswith("ml:"))
+async def adm_material_lesson(cb: CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()
+    await state.update_data(material_lesson_id=int(cb.data.split(":")[1]))
+    await state.set_state(AdmStates.material_kind)
+    await cb.message.answer(
+        "Formatni tanlang:\n"
+        "▶️ Video — YouTube/MP4 havola\n"
+        "📄 PDF — hujjat havolasi\n"
+        "🔴 Jonli dars — Zoom/YouTube Live havola\n"
+        "📝 Yozma matn — oddiy matn",
+        reply_markup=material_kind_keyboard(),
+    )
+
+
+@router.message(AdmStates.material_lesson, F.text)
+async def adm_material_lesson_text(message: Message) -> None:
+    await _press_a_button(message)
+
+
+@router.callback_query(AdmStates.material_kind, F.data.startswith("mk:"))
+async def adm_material_kind(cb: CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()
+    kind = cb.data.split(":")[1]
+    await state.update_data(material_kind=kind)
+    await state.set_state(AdmStates.material_title)
+    labels = {"video": "video", "pdf": "PDF", "live": "jonli dars", "text": "yozma matn"}
+    await cb.message.answer(f"🏷 {labels.get(kind, 'material').capitalize()} uchun sarlavha yuboring:")
+
+
+@router.message(AdmStates.material_kind, F.text)
+async def adm_material_kind_text(message: Message) -> None:
+    await _press_a_button(message)
+
+
+@router.message(AdmStates.material_title, F.text)
+async def adm_material_title(message: Message, state: FSMContext) -> None:
+    title = message.text.strip()[:160]
+    if len(title) < 2:
+        await message.answer("Sarlavha kamida 2 belgi bo‘lsin. Qayta yuboring.")
+        return
+    await state.update_data(material_title=title)
+    data = await state.get_data()
+    kind = data.get("material_kind", "text")
+    await state.set_state(AdmStates.material_content)
+    if kind == "text":
+        await message.answer("📝 Yozma matnni yuboring (o‘quvchi dars ichida o‘qiydi):")
+    else:
+        await message.answer(
+            "🔗 Havolani yuboring. <b>https://</b> yoki <b>http://</b> bilan boshlansin.\n"
+            "Masalan: <code>https://youtu.be/…</code>"
+        )
+
+
+@router.message(AdmStates.material_content, F.text)
+async def adm_material_content(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    kind = data.get("material_kind", "text")
+    content = message.text.strip()
+    if kind in {"video", "pdf", "live"} and not content.lower().startswith(("http://", "https://")):
+        await message.answer("⚠️ Bu format uchun havola kerak (http:// yoki https://). Qayta yuboring.")
+        return
+    if not content:
+        await message.answer("Bo‘sh bo‘lmasin. Qayta yuboring.")
+        return
+    try:
+        material = await backend_client.admin_create_material(
+            message.from_user.id, data["material_lesson_id"], kind,
+            data["material_title"], content[:5000],
+        )
+    except Exception as e:
+        await _fail(message, e)
+        return
+    await state.clear()
+    labels = {"video": "▶️ Video", "pdf": "📄 PDF", "live": "🔴 Jonli dars", "text": "📝 Yozma matn"}
+    await message.answer(
+        f"✅ Material qo‘shildi: <b>{labels.get(kind, kind)}</b> — {esc(material['title'])}.",
+        reply_markup=admin_menu_keyboard(),
+    )
+
+
 # ------------------------------------------------------------------ ❓ savol qo'shish
 
 @router.callback_query(F.data == "adm:addquestion")
@@ -303,6 +444,7 @@ async def adm_add_question(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(AdmStates.question_subject, F.data.startswith("qs:"))
 async def adm_question_subject(cb: CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()
     subject_id = int(cb.data.split(":")[1])
     try:
         lessons = await backend_client.admin_lessons(cb.from_user.id, subject_id)
@@ -316,7 +458,6 @@ async def adm_question_subject(cb: CallbackQuery, state: FSMContext) -> None:
         buttons = [(f"{l['level_order']}. {l['title'][:40]}", f"ql:{l['id']}") for l in lessons]
         await state.set_state(AdmStates.question_lesson)
         await cb.message.answer("Qaysi darsga savol qo‘shamiz?", reply_markup=admin_pick_row(buttons, "adm:cancel"))
-    await cb.answer()
 
 
 @router.message(AdmStates.question_subject, F.text)

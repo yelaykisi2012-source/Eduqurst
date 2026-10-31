@@ -19,10 +19,12 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
-from app.models import AnswerOption, Grade, Lesson, Question, Subject, User
+from app.models import AnswerOption, Grade, Lesson, LessonMaterial, Question, Subject, User
 from app.schemas import (
     AdminLessonCreate,
     AdminLessonOut,
+    AdminMaterialCreate,
+    AdminMaterialOut,
     AdminQuestionCreate,
     AdminQuestionOut,
     AdminSubjectCreate,
@@ -158,9 +160,53 @@ def list_lessons(
             question_count=db.scalar(
                 select(func.count(Question.id)).where(Question.lesson_id == l.id)
             ) or 0,
+            material_count=db.scalar(
+                select(func.count(LessonMaterial.id)).where(LessonMaterial.lesson_id == l.id)
+            ) or 0,
         )
         for l in lessons
     ]
+
+
+@router.post("/lessons/{lesson_id}/materials", response_model=AdminMaterialOut, status_code=201)
+def create_material(
+    lesson_id: int,
+    body: AdminMaterialCreate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin),
+):
+    """Attach one of the four lesson formats (video / pdf / live / text)
+    — or an image/slide — to an existing lesson."""
+    lesson = db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dars topilmadi")
+    needs_url = body.kind in {"video", "pdf", "live", "image"}
+    if needs_url and not body.content.strip().lower().startswith(("http://", "https://")):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Bu tur uchun havola http:// yoki https:// bilan boshlanishi kerak",
+        )
+    next_order = (
+        db.scalar(
+            select(func.max(LessonMaterial.order_index)).where(
+                LessonMaterial.lesson_id == lesson_id
+            )
+        )
+        or 0
+    ) + 1
+    material = LessonMaterial(
+        lesson_id=lesson_id,
+        kind=body.kind,
+        title=body.title,
+        content=body.content.strip(),
+        order_index=next_order,
+    )
+    db.add(material)
+    db.commit()
+    return AdminMaterialOut(
+        id=material.id, kind=material.kind, title=material.title,
+        content=material.content, order_index=material.order_index,
+    )
 
 
 @router.post("/lessons/{lesson_id}/questions", response_model=AdminQuestionOut, status_code=201)
