@@ -10,9 +10,93 @@ import { BackButton } from "./SubjectLessons";
 
 const isLink = (value: string) => /^https?:\/\//i.test(value.trim());
 
+const sizeLabel = (bytes: number | null) => {
+  if (!bytes) return "";
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1000))} KB`;
+};
+
+/**
+ * An uploaded material (Telegram file): PDF downloads, video plays inline.
+ * Bytes come from /api/materials/{id}/file with the token only in the header.
+ */
+function FileMaterialCard({ material, token }: { material: Material; token: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+
+  useEffect(
+    () => () => {
+      if (videoUrl) URL.revokeObjectURL(videoUrl);
+    },
+    [videoUrl],
+  );
+
+  const open = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const { blob, fileName } = await api.downloadMaterialFile(token, material.id);
+      const url = URL.createObjectURL(blob);
+      if (material.kind === "video") {
+        setVideoUrl(url);
+      } else {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Faylni yuklab bo‘lmadi");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const isVideo = material.kind === "video";
+  const meta = [material.file_name, sizeLabel(material.file_size)].filter(Boolean).join(" · ");
+
+  return (
+    <div className="mt-3">
+      <button
+        onClick={open}
+        disabled={busy}
+        className="flex w-full items-center gap-3 rounded-2xl border-2 border-blue-200 bg-white px-4 py-3 text-left shadow-sm active:scale-[0.99] disabled:opacity-50"
+      >
+        <span className="text-xl">{isVideo ? "▶️" : "📥"}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-bold text-blue-900">{material.title}</span>
+          <span className="block text-xs font-semibold text-blue-500">
+            {busy ? "Yuklanmoqda…" : isVideo ? "Videoni ochish" : "PDF’ni yuklab olish"}
+          </span>
+        </span>
+        {meta && <span className="shrink-0 text-[10px] font-medium text-slate-400">{meta}</span>}
+      </button>
+      {error && <p className="mt-1 text-xs font-semibold text-rose-500">{error}</p>}
+      {videoUrl && (
+        <video
+          controls
+          src={videoUrl}
+          className="mt-2 w-full rounded-2xl border-2 border-blue-100 bg-black"
+        >
+          Brauzeringiz videoni qo‘llab-quvvatlamaydi.
+        </video>
+      )}
+    </div>
+  );
+}
+
 /** One lesson material in the four supported formats (+ legacy image). */
-function MaterialCard({ material }: { material: Material }) {
+function MaterialCard({ material, token }: { material: Material; token: string }) {
   const { kind, title, content } = material;
+
+  // Uploaded Telegram file (pdf/video) — no URL involved.
+  if (material.file_id) {
+    return <FileMaterialCard material={material} token={token} />;
+  }
 
   if (kind === "image" || (kind === "text" && isLink(content))) {
     return (
@@ -147,7 +231,7 @@ export default function LessonPage({
       )}
 
       {lesson.materials.map((m) => (
-        <MaterialCard key={m.id} material={m} />
+        <MaterialCard key={m.id} material={m} token={token} />
       ))}
 
       <div className="mt-6 space-y-3">

@@ -98,9 +98,11 @@ export interface LessonDetail {
 
 /**
  * Lesson material. `kind` is one of:
- *   video | pdf | live  → content is an external URL
- *   text                → content is written explanation
- *   image | slide       → legacy formats (image URL / slide text)
+ *   video | pdf  → content is an external URL OR an uploaded Telegram file
+ *                  (file_id set; fetch bytes from /api/materials/{id}/file)
+ *   live         → content is an external URL (Zoom/Meet/YouTube Live)
+ *   text         → content is written explanation
+ *   image | slide → legacy formats (image URL / slide text)
  */
 export interface Material {
   id: number;
@@ -108,6 +110,9 @@ export interface Material {
   title: string;
   content: string;
   order_index: number;
+  file_id: string | null;
+  file_name: string | null;
+  file_size: number | null;
 }
 
 /** Payload for POST /api/admin/lessons/{id}/materials. */
@@ -115,6 +120,9 @@ export interface MaterialCreate {
   kind: string;
   title: string;
   content: string;
+  file_id?: string | null;
+  file_name?: string | null;
+  file_size?: number | null;
 }
 
 /** Quiz fetched from GET /api/lessons/{id}/quiz — never contains answers. */

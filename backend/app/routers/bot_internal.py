@@ -22,7 +22,7 @@ from app import gamification
 from app.config import get_settings
 from app.db import get_db
 from app.grades import user_grade
-from app.models import LessonProgress, User
+from app.models import LessonMaterial, LessonProgress, User
 from app.routers import admin as admin_api
 from app.routers import content as content_api
 from app.routers import me as me_api
@@ -168,6 +168,27 @@ def internal_lesson(lesson_id: int, telegram_id: int = Query(ge=1), db: Session 
 @router.post("/pupil/lesson/{lesson_id}/viewed", dependencies=[Depends(require_bot_token)])
 def internal_mark_viewed(lesson_id: int, telegram_id: int = Query(ge=1), db: Session = Depends(get_db)):
     return content_api.mark_lesson_viewed(lesson_id=lesson_id, db=db, user=_pupil(db, telegram_id))
+
+
+@router.get("/materials/{material_id}", dependencies=[Depends(require_bot_token)])
+def internal_material(material_id: int, telegram_id: int = Query(ge=1), db: Session = Depends(get_db)):
+    """A lesson's file material (pdf/video) for the bot to re-send by file_id.
+    Same pupil grade scoping as the Mini App — strangers get 404/403."""
+    material = db.get(LessonMaterial, material_id)
+    if material is None or not material.file_id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={"error": "material_not_found", "message_uz": "Fayl topilmadi."},
+        )
+    content_api._accessible_lesson(db, _pupil(db, telegram_id), material.lesson_id)
+    return {
+        "id": material.id,
+        "kind": material.kind,
+        "title": material.title,
+        "file_id": material.file_id,
+        "file_name": material.file_name,
+        "file_size": material.file_size,
+    }
 
 
 @router.get("/pupil/lesson/{lesson_id}/quiz", response_model=QuizOut, dependencies=[Depends(require_bot_token)])

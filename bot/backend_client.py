@@ -117,6 +117,11 @@ async def lesson(telegram_id: int, lesson_id: int) -> dict[str, Any]:
     return await _call("GET", f"/pupil/lesson/{lesson_id}", params={"telegram_id": telegram_id})
 
 
+async def material(telegram_id: int, material_id: int) -> dict[str, Any]:
+    """A file material (pdf/video) — the bot re-sends it by Telegram file_id."""
+    return await _call("GET", f"/materials/{material_id}", params={"telegram_id": telegram_id})
+
+
 async def mark_viewed(telegram_id: int, lesson_id: int) -> dict[str, Any]:
     return await _call("POST", f"/pupil/lesson/{lesson_id}/viewed", params={"telegram_id": telegram_id})
 
@@ -182,14 +187,16 @@ async def admin_create_question(
 
 async def admin_create_material(
     telegram_id: int, lesson_id: int, kind: str, title: str, content: str,
+    file_id: str | None = None, file_name: str | None = None, file_size: int | None = None,
 ) -> dict[str, Any]:
-    """kind: video | pdf | live | text (content = URL or written notes)."""
+    """kind: video | pdf | live | text.
+    video/pdf: content = URL yoki file_id (Telegram fayli). live: URL. text: matn."""
+    data: dict[str, Any] = {"kind": kind, "title": title, "content": content}
+    if file_id:
+        data.update({"file_id": file_id, "file_name": file_name, "file_size": file_size})
     return await _call(
         "POST", f"/admin/lessons/{lesson_id}/materials",
-        json_body={
-            "telegram_id": telegram_id,
-            "data": {"kind": kind, "title": title, "content": content},
-        },
+        json_body={"telegram_id": telegram_id, "data": data},
     )
 
 

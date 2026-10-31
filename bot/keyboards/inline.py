@@ -96,26 +96,38 @@ def lessons_keyboard(subject: dict) -> InlineKeyboardMarkup:
 
 
 def lesson_actions_keyboard(lesson: dict) -> InlineKeyboardMarkup:
-    """Lesson actions + every material that has a URL as a real link button."""
+    """Lesson actions + URL materials as link buttons + uploaded files (fl:)."""
     lid = lesson["id"]
     rows = []
     for m in lesson.get("materials", []):
         content = str(m.get("content", ""))
-        if not content.lower().startswith(("http://", "https://")):
-            continue  # written notes are printed in the message text
-        title = str(m.get("title", ""))[:55]
-        kind = m.get("kind")
-        if kind == "video":
-            label = f"▶️ {title}"
-        elif kind == "pdf":
-            label = f"📄 {title}"
-        elif kind == "live":
-            label = f"🔴 Jonli dars — {title}"
-        elif kind in ("image", "slide"):
-            label = f"🖼 {title}"
-        else:
-            label = f"🔗 {title}"
-        rows.append([InlineKeyboardButton(text=label, url=content)])
+        if content.lower().startswith(("http://", "https://")):
+            title = str(m.get("title", ""))[:55]
+            kind = m.get("kind")
+            if kind == "video":
+                label = f"▶️ {title}"
+            elif kind == "pdf":
+                label = f"📄 {title}"
+            elif kind == "live":
+                label = f"🔴 Jonli dars — {title}"
+            elif kind in ("image", "slide"):
+                label = f"🖼 {title}"
+            else:
+                label = f"🔗 {title}"
+            rows.append([InlineKeyboardButton(text=label, url=content)])
+            continue
+        if m.get("file_id"):
+            title = str(m.get("title", ""))[:55]
+            kind = m.get("kind")
+            if kind == "video":
+                label = f"▶️ {title}"
+            elif kind == "pdf":
+                label = f"📄 {title}"
+            else:
+                label = f"📎 {title}"
+            rows.append([_btn(label, f"fl:{m['id']}")])
+            continue
+        # written notes are printed in the message text
     video = lesson.get("video_url") or ""
     if video.lower().startswith(("http://", "https://")):
         rows.append([InlineKeyboardButton(text="🎬 Video darsni ko‘rish", url=video)])

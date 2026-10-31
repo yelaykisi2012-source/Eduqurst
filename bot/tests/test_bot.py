@@ -31,7 +31,7 @@ os.environ.setdefault("ADMIN_USER_IDS", "999000111")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from aiogram import Bot  # noqa: E402
-from aiogram.types import CallbackQuery, Chat, Document, Message, User  # noqa: E402
+from aiogram.types import CallbackQuery, Chat, Document, Message, User, Video  # noqa: E402
 
 from handlers import admin as admin_handlers  # noqa: E402
 from handlers import learn as learn_handlers  # noqa: E402
@@ -76,6 +76,10 @@ LESSON = {
         {"id": 4, "kind": "text", "title": "Eslatma", "content": "Yozma matn"},
         {"id": 5, "kind": "image", "title": "Rasm", "content": "https://example.com/a.png"},
         {"id": 6, "kind": "text", "title": "Qo‘shimcha havola", "content": "https://example.com/extra"},
+        {"id": 7, "kind": "pdf", "title": "Kitob fayl", "content": "",
+         "file_id": "BQAC1pdf", "file_name": "kitob.pdf", "file_size": 1000},
+        {"id": 8, "kind": "video", "title": "Video fayl", "content": "",
+         "file_id": "BAAC2mp4", "file_name": "dars.mp4", "file_size": 5000},
     ],
 }
 
@@ -131,7 +135,7 @@ def fake_callback(data: str) -> CallbackQuery:
     )
 
 
-def fake_message(text: str | None = None, document: bool = False) -> Message:
+def fake_message(text: str | None = None, document: bool = False, video: bool = False) -> Message:
     return Message(
         message_id=1,
         date=datetime.now(timezone.utc),
@@ -144,6 +148,15 @@ def fake_message(text: str | None = None, document: bool = False) -> Message:
                 file_name="Welcome-to-the-English-Alphabet.pdf", file_size=11_000_000,
             )
             if document
+            else None
+        ),
+        video=(
+            Video(
+                file_id="test-video-id", file_unique_id="test-video-unique",
+                width=640, height=360, duration=10,
+                file_name="dars.mp4", file_size=5_000_000,
+            )
+            if video
             else None
         ),
     )
@@ -181,6 +194,15 @@ class KeyboardTests(unittest.TestCase):
         labels = [b.text for row in markup.inline_keyboard for b in row]
         self.assertFalse(any("Eslatma" in label for label in labels))
 
+    def test_file_materials_get_callback_buttons(self):
+        markup = kb.lesson_actions_keyboard(LESSON)
+        callbacks = [b.callback_data for row in markup.inline_keyboard for b in row]
+        assert "fl:7" in callbacks  # yuklangan PDF fayl
+        assert "fl:8" in callbacks  # yuklangan video fayl
+        labels = [b.text for row in markup.inline_keyboard for b in row]
+        self.assertTrue(any("Kitob fayl" in label for label in labels))
+        self.assertTrue(any("Video fayl" in label for label in labels))
+
 
 class HandlerCoverageTests(unittest.TestCase):
     """Every callback the keyboards emit must be handled in router order."""
@@ -212,6 +234,7 @@ class HandlerCoverageTests(unittest.TestCase):
             "le:10": "cb_lesson",
             "vw:10": "cb_viewed",
             "qz:10": "cb_quiz",
+            "fl:7": "cb_material_file",
         }
         for data, expected in cases.items():
             self.assertEqual(self._first_handler(data, None), expected, data)
@@ -246,8 +269,8 @@ class HandlerCoverageTests(unittest.TestCase):
 class NonTextHandlerTests(unittest.TestCase):
     """A file sent where text is expected must be answered, never ignored."""
 
-    def _first_message_handler(self, raw_state: str | None, text: str | None = None, document: bool = False) -> str | None:
-        event = fake_message(text=text, document=document)
+    def _first_message_handler(self, raw_state: str | None, text: str | None = None, document: bool = False, video: bool = False) -> str | None:
+        event = fake_message(text=text, document=document, video=video)
         # Command filters need a Bot instance; it never touches the network
         # because our test messages are not commands with bot mentions.
         fake_bot = Bot(token="012345:TEST_TOKEN_NOT_REAL")
@@ -262,9 +285,14 @@ class NonTextHandlerTests(unittest.TestCase):
         state = admin_handlers.AdmStates.material_title.state
         self.assertEqual(self._first_message_handler(state, document=True), "adm_non_text")
 
-    def test_document_in_material_content_state_is_answered(self):
+    def test_document_in_material_content_state_goes_to_file_handler(self):
+        # PDF fayl endi QABUL QILINADI: file_id bilan backendga saqlanadi.
         state = admin_handlers.AdmStates.material_content.state
-        self.assertEqual(self._first_message_handler(state, document=True), "adm_non_text")
+        self.assertEqual(self._first_message_handler(state, document=True), "adm_material_pdf_file")
+
+    def test_video_in_material_content_state_goes_to_file_handler(self):
+        state = admin_handlers.AdmStates.material_content.state
+        self.assertEqual(self._first_message_handler(state, video=True), "adm_material_video_file")
 
     def test_plain_text_in_material_title_still_reaches_text_handler(self):
         state = admin_handlers.AdmStates.material_title.state

@@ -101,6 +101,41 @@ export const api = {
 
   lesson: (token: string, id: number) => req<LessonDetail>(`/api/lessons/${id}`, { token }),
 
+  /**
+   * An uploaded material (pdf/video) is fetched as raw bytes with the token in
+   * the Authorization header — never in the URL. Returns { blob, fileName } so
+   * the page can open it via an object URL (PDF preview / video player).
+   */
+  downloadMaterialFile: async (
+    token: string,
+    materialId: number,
+  ): Promise<{ blob: Blob; fileName: string }> => {
+    if (!API_URL) {
+      throw new ApiError(0, "Backend manzili sozlanmagan (VITE_API_URL bo‘sh).", "no_api");
+    }
+    const res = await fetch(`${API_URL}/api/materials/${materialId}/file`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      let message = res.statusText || "Faylni yuklab bo‘lmadi";
+      try {
+        const data = JSON.parse(await res.text());
+        const detail = data?.detail;
+        if (typeof detail === "string") message = detail;
+        else if (detail && typeof detail === "object") {
+          message = detail.message_uz ?? message;
+        }
+      } catch {
+        // non-JSON error body — keep the status text
+      }
+      throw new ApiError(res.status, message);
+    }
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const fileName = match ? match[1] : `material-${materialId}`;
+    return { blob: await res.blob(), fileName };
+  },
+
   markViewed: (token: string, id: number) =>
     req<{
       ok: boolean;

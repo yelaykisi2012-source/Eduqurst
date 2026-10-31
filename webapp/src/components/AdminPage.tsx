@@ -887,6 +887,11 @@ function MaterialForm({
         ))}
       </div>
 
+      <p className="mt-2 rounded-lg bg-white/70 px-2 py-1.5 text-[11px] leading-relaxed text-emerald-800">
+        📎 PDF yoki video <b>faylni</b> Telegram botdagi «🎞 Material qo‘shish» orqali yuboring —
+        bot faylni o‘zi saqlaydi. Bu forma esa havola (link) qo‘shadi; jonli dars faqat havola bilan.
+      </p>
+
       <label className={label}>Sarlavha</label>
       <input
         className={input}
@@ -1013,7 +1018,11 @@ function MaterialList({
               </p>
               <ConfirmDelete busy={busyId === m.id} onConfirm={() => void remove(m.id)} />
             </div>
-            <p className="mt-1 line-clamp-2 break-all text-[11px] text-slate-500">{m.content}</p>
+            <p className="mt-1 line-clamp-2 break-all text-[11px] text-slate-500">
+              {m.file_id
+                ? `📎 Fayl: ${m.file_name ?? "yuklangan fayl"}${m.file_size ? ` (${(m.file_size / 1_000_000).toFixed(1)} MB)` : ""}`
+                : m.content}
+            </p>
           </div>
         ))}
       </div>

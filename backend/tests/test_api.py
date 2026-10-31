@@ -907,3 +907,171 @@ def test_hidden_middle_lesson_does_not_block_unlock(client: TestClient):
     )
     assert z["lessons"][1]["level_order"] == 3
     assert z["lessons"][1]["unlocked"] is True
+
+
+# ---------- fayl materiallar (Telegram orqali yuklangan pdf/video) ----------
+
+def _file_material_setup(client: TestClient) -> tuple[dict, dict, dict, dict, dict]:
+    """7-sinfda bitta dars yaratadi: fayl pdf + fayl video + yozma eslatma."""
+    admin = login_as(client, {"id": 999000111, "first_name": "Admin"})
+    subj = client.post(
+        "/api/admin/subjects",
+        json={"grade_id": 7, "name": "Fayllar", "emoji": "📁"},
+        headers=admin,
+    ).json()
+    lesson = client.post(
+        f"/api/admin/subjects/{subj['id']}/lessons",
+        json={"title": "Fayl dars", "explanation": "PDF va video fayl sifatida."},
+        headers=admin,
+    ).json()
+    pdf = client.post(
+        f"/api/admin/lessons/{lesson['id']}/materials",
+        json={
+            "kind": "pdf", "title": "Kitob",
+            "file_id": "BQACAgIAAx1pdf", "file_name": "kitob.pdf", "file_size": 1_234_567,
+        },
+        headers=admin,
+    )
+    video = client.post(
+        f"/api/admin/lessons/{lesson['id']}/materials",
+        json={
+            "kind": "video", "title": "Rollik",
+            "file_id": "BAACAgIAAx2mp4", "file_name": "dars.mp4", "file_size": 5_000_000,
+        },
+        headers=admin,
+    )
+    text = client.post(
+        f"/api/admin/lessons/{lesson['id']}/materials",
+        json={"kind": "text", "title": "Eslatma", "content": "Yozma matn"},
+        headers=admin,
+    )
+    assert pdf.status_code == 201, pdf.text
+    assert video.status_code == 201, video.text
+    assert text.status_code == 201, text.text
+    return admin, lesson, pdf.json(), video.json(), text.json()
+
+
+def test_material_create_with_file_needs_no_url(client: TestClient):
+    admin, lesson, pdf, video, text = _file_material_setup(client)
+
+    # fayl materiallarida content bo'sh bo'ladi, fayl maydonlari saqlanadi
+    assert pdf["content"] == "" and pdf["file_id"] == "BQACAgIAAx1pdf"
+    assert pdf["file_name"] == "kitob.pdf" and pdf["file_size"] == 1_234_567
+    assert video["file_id"] and video["file_name"] == "dars.mp4"
+
+    # video/pdf: havola ham, file_id ham bo'lmasa → 422
+    assert client.post(
+        f"/api/admin/lessons/{lesson['id']}/materials",
+        json={"kind": "pdf", "title": "Buzuq", "content": "havola emas"},
+        headers=admin,
+    ).status_code == 422
+    assert client.post(
+        f"/api/admin/lessons/{lesson['id']}/materials",
+        json={"kind": "video", "title": "Buzuq", "content": ""},
+        headers=admin,
+    ).status_code == 422
+
+    # jonli dars faqat havola (Zoom/Meet): file_id bilan ham URL talab qilinadi
+    assert client.post(
+        f"/api/admin/lessons/{lesson['id']}/materials",
+        json={"kind": "live", "title": "Jonli", "file_id": "AAA", "file_name": "a.mp4"},
+        headers=admin,
+    ).status_code == 422
+
+    # o'quvchi dars tafsilotida fayl maydonlarini ko'radi
+    pupil = login_as(client, {"id": 888001001, "first_name": "Faylchi"})
+    pick_grade(client, pupil, "7-sinf")
+    detail = client.get(f"/api/lessons/{lesson['id']}", headers=pupil).json()
+    by_kind = {m["kind"]: m for m in detail["materials"]}
+    assert by_kind["pdf"]["file_id"] == "BQACAgIAAx1pdf"
+    assert by_kind["pdf"]["content"] == ""
+    assert by_kind["video"]["file_name"] == "dars.mp4"
+    assert by_kind["text"]["file_id"] is None
+
+
+def test_material_file_proxy(client: TestClient, monkeypatch):
+    from app.routers import content as content_api
+
+    _, _, pdf, video, text = _file_material_setup(client)
+    pupil = login_as(client, {"id": 888001002, "first_name": "Proxy"})
+    pick_grade(client, pupil, "7-sinf")
+
+    monkeypatch.setattr(
+        content_api, "_telegram_get_file",
+        lambda fid: {"ok": True, "result": {"file_path": f"documents/{fid}.bin"}},
+    )
+
+    # PDF → inline application/pdf, stream body o'tadi, token URLda ko'rinmaydi
+    monkeypatch.setattr(
+        content_api, "_telegram_file_stream", lambda path: (b for b in [b"%PDF-1.4", b"-fayl"])
+    )
+    resp = client.get(f"/api/materials/{pdf['id']}/file", headers=pupil)
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("application/pdf")
+    assert 'filename="kitob.pdf"' in resp.headers["content-disposition"]
+    assert resp.content == b"%PDF-1.4-fayl"
+
+    # MP4 → video/mp4
+    monkeypatch.setattr(
+        content_api, "_telegram_file_stream", lambda path: (b for b in [b"video-bytes"])
+    )
+    resp = client.get(f"/api/materials/{video['id']}/file", headers=pupil)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("video/mp4")
+    assert resp.content == b"video-bytes"
+
+    # fayli yo'q material (yozma eslatma) → 404
+    assert client.get(f"/api/materials/{text['id']}/file", headers=pupil).status_code == 404
+    # umuman mavjud bo'lmagan material → 404
+    assert client.get("/api/materials/999999/file", headers=pupil).status_code == 404
+
+    # Telegram fayl juda katta desa → halol 413
+    monkeypatch.setattr(
+        content_api, "_telegram_get_file",
+        lambda fid: {"ok": False, "description": "file is too big to download"},
+    )
+    assert client.get(f"/api/materials/{pdf['id']}/file", headers=pupil).status_code == 413
+
+    # boshqa sinf o'quvchisi faylni ko'ra olmaydi → 403
+    stranger = login_as(client, {"id": 888001003, "first_name": "Begona"})
+    pick_grade(client, stranger, "6-sinf")
+    monkeypatch.setattr(
+        content_api, "_telegram_get_file",
+        lambda fid: {"ok": True, "result": {"file_path": "documents/x.bin"}},
+    )
+    assert client.get(f"/api/materials/{pdf['id']}/file", headers=stranger).status_code == 403
+
+
+def test_internal_material_endpoint(client: TestClient):
+    _, _, pdf, video, text = _file_material_setup(client)
+    client.post(
+        "/api/internal/pupils", json={"telegram_id": 777601, "first_name": "Botchi"}, headers=_h()
+    )
+    client.post("/api/internal/pupil/grade", json={"telegram_id": 777601, "grade_id": 7}, headers=_h())
+
+    resp = client.get(
+        f"/api/internal/materials/{pdf['id']}", params={"telegram_id": 777601}, headers=_h()
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["kind"] == "pdf"
+    assert body["file_id"] == "BQACAgIAAx1pdf"
+    assert body["file_name"] == "kitob.pdf" and body["file_size"] == 1_234_567
+    assert client.get(
+        f"/api/internal/materials/{video['id']}", params={"telegram_id": 777601}, headers=_h()
+    ).json()["file_id"] == "BAACAgIAAx2mp4"
+
+    # faylsiz material → 404; noto'g'ri bot token → 401; boshqa sinf → 403
+    assert client.get(
+        f"/api/internal/materials/{text['id']}", params={"telegram_id": 777601}, headers=_h()
+    ).status_code == 404
+    assert client.get(
+        f"/api/internal/materials/{pdf['id']}", params={"telegram_id": 777601}, headers=_h("xato")
+    ).status_code == 401
+    client.post(
+        "/api/internal/pupils", json={"telegram_id": 777602, "first_name": "Boshqa"}, headers=_h()
+    )
+    client.post("/api/internal/pupil/grade", json={"telegram_id": 777602, "grade_id": 6}, headers=_h())
+    assert client.get(
+        f"/api/internal/materials/{pdf['id']}", params={"telegram_id": 777602}, headers=_h()
+    ).status_code == 403

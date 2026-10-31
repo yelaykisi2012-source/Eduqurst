@@ -12,7 +12,8 @@ Flows (each is a small FSM asking one thing at a time):
   🎞 Material qo'shish : sinf → fan → dars → format → sarlavha → havola/matn
   ❓ Savol qo'shish    : sinf → fan → dars → savol → variantlar (* = to'g'ri)
 
-Material formats: video (havola), pdf (havola), live (havola), text (yozma matn).
+Material formats: video (MP4 fayl yoki havola), pdf (fayl yoki havola),
+live (Zoom/Meet havolasi), text (yozma matn).
 """
 from __future__ import annotations
 
@@ -372,9 +373,9 @@ async def adm_material_lesson(cb: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdmStates.material_kind)
     await cb.message.answer(
         "Formatni tanlang:\n"
-        "▶️ Video — YouTube/MP4 havola\n"
-        "📄 PDF — hujjat havolasi\n"
-        "🔴 Jonli dars — Zoom/YouTube Live havola\n"
+        "▶️ Video — MP4 fayl yoki havola\n"
+        "📄 PDF — fayl yoki havola\n"
+        "🔴 Jonli dars — Zoom/Meet havolasi\n"
         "📝 Yozma matn — oddiy matn",
         reply_markup=material_kind_keyboard(),
     )
@@ -412,10 +413,17 @@ async def adm_material_title(message: Message, state: FSMContext) -> None:
     await state.set_state(AdmStates.material_content)
     if kind == "text":
         await message.answer("📝 Yozma matnni yuboring (o‘quvchi dars ichida o‘qiydi):")
-    else:
+    elif kind == "live":
         await message.answer(
-            "🔗 Havolani yuboring. <b>https://</b> yoki <b>http://</b> bilan boshlansin.\n"
-            "Masalan: <code>https://youtu.be/…</code>"
+            "🔗 Jonli dars havolasini yuboring (Zoom / Google Meet / YouTube Live).\n"
+            "<b>https://</b> bilan boshlansin."
+        )
+    else:  # video / pdf — fayl yoki havola
+        await message.answer(
+            "📎 Endi <b>faylning o‘zini</b> yuboring yoki havola bering:\n"
+            "• Fayl — PDF hujjat / MP4 video to‘g‘ridan-to‘g‘ri shu chatga;\n"
+            "• Havola — <b>https://</b> bilan boshlansin.\n"
+            "(Jonli dars uchun faqat havola qabul qilinadi.)"
         )
 
 
@@ -431,8 +439,14 @@ async def adm_material_content(message: Message, state: FSMContext) -> None:
             reply_markup=admin_menu_keyboard(),
         )
         return
-    if kind in {"video", "pdf", "live"} and not content.lower().startswith(("http://", "https://")):
-        await message.answer("⚠️ Bu format uchun havola kerak (http:// yoki https://). Qayta yuboring.")
+    if kind == "live" and not content.lower().startswith(("http://", "https://")):
+        await message.answer("⚠️ Jonli dars uchun havola kerak (http:// yoki https://). Qayta yuboring.")
+        return
+    if kind in {"video", "pdf"} and not content.lower().startswith(("http://", "https://")):
+        await message.answer(
+            "⚠️ Bu havolaga o‘xshamayapti. <b>https://</b> bilan boshlanadigan havola yuboring —\n"
+            "yoki havola o‘rniga faylning o‘zini yuboring (PDF hujjat / MP4 video)."
+        )
         return
     if not content:
         await message.answer("Bo‘sh bo‘lmasin. Qayta yuboring.")
@@ -546,9 +560,81 @@ async def adm_question_options(message: Message, state: FSMContext) -> None:
     )
 
 
+# ------------------------------------------------------------------ 🎞 material: fayl yuklash (pdf/video)
+# Telegram faylning o'zini saqlaydi — biz faqat file_id'ni backendka beramiz.
+# O'quvchi keyin bot ichida ham, Mini Appda ham shu faylni ocha oladi.
+
+async def _save_file_material(
+    message: Message, state: FSMContext, kind: str,
+    file_id: str, file_name: str, file_size: int,
+) -> None:
+    data = await state.get_data()
+    if not data.get("material_lesson_id") or not data.get("material_title"):
+        await state.clear()
+        await message.answer(
+            "⌛ Sessiya eskirgan. Admin menyudan qaytadan boshlang.",
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
+    try:
+        material = await backend_client.admin_create_material(
+            message.from_user.id, data["material_lesson_id"], kind,
+            data["material_title"], "",
+            file_id=file_id, file_name=file_name, file_size=file_size,
+        )
+    except Exception as e:
+        await _fail(message, e)
+        return
+    await state.clear()
+    labels = {"video": "▶️ Video", "pdf": "📄 PDF"}
+    await message.answer(
+        f"✅ Material qo‘shildi: <b>{labels[kind]}</b> — {esc(material['title'])}.\n"
+        "O‘quvchi uni bot ichida ham, Mini Appda ham ocha oladi.",
+        reply_markup=admin_menu_keyboard(),
+    )
+
+
+@router.message(AdmStates.material_content, F.document)
+async def adm_material_pdf_file(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    kind = data.get("material_kind", "")
+    if kind != "pdf":
+        await message.answer(
+            "⚠️ PDF hujjat faqat <b>📄 PDF</b> formati uchun.\n"
+            + ("▶️ Video formatiga MP4 video fayl yuboring yoki havola bering."
+               if kind == "video"
+               else "Bu format uchun matn yoki havola yuboring.")
+        )
+        return
+    doc = message.document
+    await _save_file_material(
+        message, state, "pdf",
+        doc.file_id, doc.file_name or "hujjat.pdf", doc.file_size or 1,
+    )
+
+
+@router.message(AdmStates.material_content, F.video)
+async def adm_material_video_file(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    kind = data.get("material_kind", "")
+    if kind != "video":
+        await message.answer(
+            "⚠️ Video fayl faqat <b>▶️ Video</b> formati uchun.\n"
+            + ("📄 PDF formatiga hujjat (PDF) yuboring yoki havola bering."
+               if kind == "pdf"
+               else "Bu format uchun matn yoki havola yuboring.")
+        )
+        return
+    vid = message.video
+    await _save_file_material(
+        message, state, "video",
+        vid.file_id, vid.file_name or "video.mp4", vid.file_size or 1,
+    )
+
+
 # ------------------------------------------------------------------ matn kutilayotganda fayl yuborildi
 # The bot never silently ignores a message: if a pupil/admin sends a file
-# (PDF, photo, video, voice…) where TEXT was expected, we explain and keep
+# (photo, voice, audio…) where TEXT was expected, we explain and keep
 # the FSM state so the flow can continue.
 
 @router.message(StateFilter(AdmStates), ~F.text)
@@ -556,8 +642,8 @@ async def adm_non_text(message: Message, state: FSMContext) -> None:
     current = await state.get_state()
     if current == AdmStates.material_title.state:
         await message.answer(
-            "📎 Fayl qabul qilinmaydi — bot fayllarni saqlamaydi, faqat <b>matn va havola</b> bilan ishlaydi.\n"
-            "Avval material <b>sarlavha</b>sini matn qilib yuboring, keyin esa havola so‘rayman."
+            "📎 Avval material <b>sarlavha</b>sini matn qilib yuboring.\n"
+            "Fayl keyingi qadamda so‘raladi."
         )
     elif current == AdmStates.material_content.state:
         data = await state.get_data()
@@ -566,13 +652,20 @@ async def adm_non_text(message: Message, state: FSMContext) -> None:
             await message.answer(
                 "📎 Fayl emas, <b>yozma matn</b> yuboring — o‘quvchi uni dars ichida o‘qiydi."
             )
+        elif kind == "pdf":
+            await message.answer(
+                "📄 <b>PDF hujjat</b> sifatida yuboring yoki https:// havola bering.\n"
+                "Boshqa turdagi fayl qabul qilinmaydi."
+            )
+        elif kind == "video":
+            await message.answer(
+                "▶️ <b>MP4 video</b> sifatida yuboring yoki https:// havola bering.\n"
+                "Boshqa turdagi fayl qabul qilinmaydi."
+            )
         else:
             await message.answer(
-                "📎 Bot faylni qabul qilmaydi — bu format uchun <b>havola (link)</b> kerak.\n"
-                "Faylni Google Drive / Telegram kanal yoki bulutga joylang, "
-                "«ulashish» havolasini nusxalab shu yerga yuboring "
-                "(https://… bilan boshlanadi).\n"
-                "To‘xtatmoqchi bo‘lsangiz «⬅️ Bekor» tugmasini bosing."
+                "🔗 Jonli dars uchun <b>havola</b> kerak (Zoom / Google Meet / YouTube Live).\n"
+                "https:// bilan boshlansin."
             )
     else:
         await _press_a_button(message)

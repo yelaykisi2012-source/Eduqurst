@@ -218,17 +218,45 @@ async def cb_lesson(cb: CallbackQuery) -> None:
         f"⭐ Sovrin: <b>{lesson['stars_reward']}</b> · o‘tish chegarasi: <b>{lesson['pass_threshold_percent']}%</b>"
     )
     # Written notes / slides are printed here; anything with a URL (video,
-    # PDF, live lesson, image, ...) becomes a real link button.
+    # PDF, live lesson, image, ...) becomes a real link button; uploaded
+    # files (file_id) get their own button too.
+    materials = lesson.get("materials", [])
     extras = [
-        m for m in lesson.get("materials", [])
-        if not is_url(m.get("content"))
+        m for m in materials
+        if not is_url(m.get("content")) and not m.get("file_id")
     ]
     for m in extras:
         text += f"\n\n📝 <b>{esc(m['title'])}</b>\n{esc(m['content'])}"
-    link_kinds = [m for m in lesson.get("materials", []) if is_url(m.get("content"))]
-    if link_kinds:
+    if any(is_url(m.get("content")) for m in materials) or any(m.get("file_id") for m in materials):
         text += "\n\n🎬 Quyidagi tugmalar orqali dars materiallarini oching:"
     await send_long(cb.message, text, reply_markup=lesson_actions_keyboard(lesson))
+
+
+@router.callback_query(F.data.startswith("fl:"))
+async def cb_material_file(cb: CallbackQuery) -> None:
+    """A pupil taps a file material — the bot re-sends the Telegram file."""
+    material_id = int(cb.data.split(":")[1])
+    await cb.answer("📎 Fayl yuklanmoqda…")
+    try:
+        material = await backend_client.material(cb.from_user.id, material_id)
+    except backend_client.BackendOffline:
+        await _offline(cb.message)
+        return
+    except backend_client.BackendBusiness as e:
+        if e.code == "material_not_found":
+            await cb.message.answer("⚠️ Fayl topilmadi (o‘chirilgan yoki boshqa sinfga tegishli).")
+        else:
+            await _business(cb.message, e)
+        return
+    caption = f"📎 <b>{esc(material.get('title') or 'Material')}</b>"
+    try:
+        if material.get("kind") == "video":
+            await cb.message.answer_video(material["file_id"], caption=caption)
+        else:
+            await cb.message.answer_document(material["file_id"], caption=caption)
+    except Exception:
+        logger.exception("Faylni yuborishda xatolik (material=%s)", material_id)
+        await cb.message.answer("⚠️ Faylni yuborishda xatolik. Kechroq qayta urinib ko‘ring.")
 
 
 @router.callback_query(F.data.startswith("vw:"))

@@ -106,14 +106,18 @@ class AdminLessonOut(BaseModel):
 
 class AdminMaterialCreate(BaseModel):
     # The four lesson formats a teacher can post + optional extras:
-    #   video  -> content is a URL (YouTube, Vimeo, ...)
-    #   pdf    -> content is a URL to the PDF file
+    #   video  -> a URL (YouTube, Vimeo, ...) OR an uploaded video file
+    #             (file_id/file_name/file_size from the Telegram bot)
+    #   pdf    -> a URL to the PDF OR an uploaded PDF file (file fields)
     #   live   -> content is a URL to the live room (Zoom/Meet/YouTube Live);
     #             title carries the schedule, e.g. "Dushanba 18:00"
     #   text   -> written notes (free text, no URL)
     kind: str = Field(default="text", pattern="^(video|pdf|live|text|image|slide)$")
     title: str = Field(min_length=2, max_length=160)
-    content: str = Field(min_length=1, max_length=5000)
+    content: str = Field(default="", max_length=5000)
+    file_id: str | None = Field(default=None, max_length=512)
+    file_name: str | None = Field(default=None, max_length=255)
+    file_size: int | None = Field(default=None, ge=1)
 
 
 class AdminMaterialOut(BaseModel):
@@ -122,6 +126,9 @@ class AdminMaterialOut(BaseModel):
     title: str
     content: str
     order_index: int
+    file_id: str | None = None
+    file_name: str | None = None
+    file_size: int | None = None
 
 
 class AdminOptionCreate(BaseModel):
@@ -180,6 +187,9 @@ class MaterialOut(ORMModel):
     title: str
     content: str
     order_index: int
+    file_id: str | None = None
+    file_name: str | None = None
+    file_size: int | None = None
 
 
 class LessonDetail(BaseModel):

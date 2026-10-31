@@ -109,7 +109,13 @@ class Lesson(Base):
 
 
 class LessonMaterial(Base):
-    """Slides / images / extra text blocks shown before the quiz."""
+    """Slides / images / extra text blocks shown before the quiz.
+
+    Four main formats: video, pdf, live, text. Video and PDF materials can
+    be EITHER a URL (content) or an uploaded Telegram file (file_id + name +
+    size; the bot receives the file and Telegram stores it — the backend
+    proxies it for the Mini App). Live lessons are URL-only (Zoom/Meet).
+    """
 
     __tablename__ = "lesson_materials"
 
@@ -117,8 +123,12 @@ class LessonMaterial(Base):
     lesson_id: Mapped[int] = mapped_column(ForeignKey("lessons.id"), index=True)
     kind: Mapped[str] = mapped_column(String(16), default="slide")  # slide|image|text
     title: Mapped[str] = mapped_column(String(160), default="")
-    content: Mapped[str] = mapped_column(Text, default="")  # text or image URL
+    content: Mapped[str] = mapped_column(Text, default="")  # text or URL
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+    # Uploaded-file materials (video/pdf kinds only):
+    file_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     lesson: Mapped[Lesson] = relationship(back_populates="materials")
 

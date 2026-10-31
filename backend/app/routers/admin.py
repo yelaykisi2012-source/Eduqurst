@@ -249,15 +249,21 @@ def create_material(
     admin: User = Depends(get_admin),
 ):
     """Attach one of the four lesson formats (video / pdf / live / text)
-    — or an image/slide — to an existing lesson."""
+    — or an image/slide — to an existing lesson. Video and PDF may be an
+    uploaded Telegram file (file_id...) instead of a URL."""
     lesson = db.get(Lesson, lesson_id)
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dars topilmadi")
-    needs_url = body.kind in {"video", "pdf", "live", "image"}
-    if needs_url and not body.content.strip().lower().startswith(("http://", "https://")):
+    is_url = body.content.strip().lower().startswith(("http://", "https://"))
+    if body.kind in {"live", "image"} and not is_url:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Bu tur uchun havola http:// yoki https:// bilan boshlanishi kerak",
+        )
+    if body.kind in {"video", "pdf"} and not is_url and not body.file_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Video/PDF uchun havola yoki fayl (file_id) kerak",
         )
     next_order = (
         db.scalar(
@@ -271,14 +277,19 @@ def create_material(
         lesson_id=lesson_id,
         kind=body.kind,
         title=body.title,
-        content=body.content.strip(),
+        content=body.content.strip() if not body.file_id else "",
         order_index=next_order,
+        file_id=body.file_id,
+        file_name=body.file_name,
+        file_size=body.file_size,
     )
     db.add(material)
     db.commit()
     return AdminMaterialOut(
         id=material.id, kind=material.kind, title=material.title,
         content=material.content, order_index=material.order_index,
+        file_id=material.file_id, file_name=material.file_name,
+        file_size=material.file_size,
     )
 
 
@@ -339,6 +350,7 @@ def list_materials(
         AdminMaterialOut(
             id=m.id, kind=m.kind, title=m.title,
             content=m.content, order_index=m.order_index,
+            file_id=m.file_id, file_name=m.file_name, file_size=m.file_size,
         )
         for m in materials
     ]

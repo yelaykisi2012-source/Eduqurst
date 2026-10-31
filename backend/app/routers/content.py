@@ -11,14 +11,20 @@ Grade scoping:
 Only published content is visible; locked lessons are listed but flagged
 unlocked=false so the Mini App can show a 🔒 instead of hiding progress.
 """
+import json
+import urllib.parse
+import urllib.request
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_db
 from app.gamification import get_progress, is_lesson_unlocked
 from app.grades import assert_lesson_in_grade, require_grade
-from app.models import Lesson, LessonProgress, Subject, User
+from app.models import Lesson, LessonMaterial, LessonProgress, Subject, User
 from app.schemas import (
     LessonDetail,
     LessonSummary,
@@ -33,6 +39,28 @@ from app.security import get_current_user
 router = APIRouter(prefix="/api", tags=["content"])
 
 _NOT_FOUND = HTTPException(status.HTTP_404_NOT_FOUND, detail="Topilmadi")
+
+_TG_API = "https://api.telegram.org"
+
+
+def _telegram_get_file(file_id: str) -> dict:
+    """Ask Telegram where a file we received lives. Kept as a small helper so
+    tests can monkeypatch it without network access."""
+    token = get_settings().BOT_TOKEN
+    url = f"{_TG_API}/bot{token}/getFile?file_id={urllib.parse.quote(file_id)}"
+    req = urllib.request.Request(url, headers={"User-Agent": "eduquest"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _telegram_file_stream(path: str):
+    """Stream the file bytes from Telegram without ever leaking the bot token."""
+    token = get_settings().BOT_TOKEN
+    url = f"{_TG_API}/file/bot{token}/{urllib.parse.quote(path)}"
+    req = urllib.request.Request(url, headers={"User-Agent": "eduquest"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        while chunk := resp.read(65536):
+            yield chunk
 
 
 @router.get("/subjects", response_model=list[SubjectWithLessons])
@@ -163,4 +191,49 @@ def get_quiz(
         lesson_title=lesson.title,
         pass_threshold_percent=lesson.pass_threshold_percent,
         questions=questions,
+    )
+
+
+_MEDIA_TYPES = {
+    "pdf": "application/pdf",
+    "mp4": "video/mp4",
+    "mov": "video/quicktime",
+    "webm": "video/webm",
+    "m4v": "video/mp4",
+}
+
+
+@router.get("/materials/{material_id}/file")
+def material_file(
+    material_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Serve an uploaded video/PDF file. The pupil must be allowed to open the
+    lesson (grade scoping, publishing). The bot token never reaches the client
+    — we stream Telegram's bytes through the backend."""
+    material = db.get(LessonMaterial, material_id)
+    if material is None or not material.file_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Fayl topilmadi")
+    _accessible_lesson(db, user, material.lesson_id)  # 403 wrong grade / 404 hidden
+    try:
+        info = _telegram_get_file(material.file_id)
+    except Exception:  # network / Telegram outage
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="Faylni olishda xatolik")
+    if not info.get("ok"):
+        description = str(info.get("description", "")).lower()
+        if "too big" in description:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Fayl juda katta — uni Telegram bot orqali oling.",
+            )
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="Faylni olishda xatolik")
+    path = info["result"]["file_path"]
+    filename = (material.file_name or path.rsplit("/", 1)[-1]).replace('"', "").replace("\n", "").replace("\r", "")
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "").lower()
+    media_type = _MEDIA_TYPES.get(ext, "application/octet-stream")
+    return StreamingResponse(
+        _telegram_file_stream(path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
