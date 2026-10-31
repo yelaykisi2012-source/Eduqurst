@@ -28,7 +28,11 @@ interface TelegramWebApp {
   colorScheme: "light" | "dark";
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
-  HapticFeedback?: { impactOccurred: (style: string) => void };
+  HapticFeedback?: {
+    impactOccurred: (style: string) => void;
+    notificationOccurred: (type: string) => void;
+    selectionChanged: () => void;
+  };
 }
 
 interface TelegramLoginUser {

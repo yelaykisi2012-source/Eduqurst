@@ -1,27 +1,16 @@
-/**
- * WebLogin.tsx — browser sign-in via the official Telegram Login Widget.
- *
- * Loads https://telegram.org/js/telegram-widget.js, which shows a
- * "Log in with Telegram" button. On success it calls the global
- * `onTelegramAuth(user)` with fields + a hash signed by Telegram; the backend
- * verifies that hash with our bot token before issuing a JWT.
- *
- * IMPORTANT: the widget only works on a domain registered for the bot in
- * BotFather (/setdomain), e.g. eduquest-mini-app-7o3hx1m5a24.qoder.website.
- */
 import { useEffect, useRef } from "react";
-
 import type { TelegramWebUser } from "../types";
+import Card from "./ui/Card";
+import { IconLock, IconExternalLink } from "./ui/Icons";
 
 const BOT_USERNAME = "Edi_Quest_bot";
 
-export default function WebLogin({
-  onAuth,
-  error,
-}: {
+interface WebLoginProps {
   onAuth: (user: TelegramWebUser) => void;
   error?: string;
-}) {
+}
+
+export default function WebLogin({ onAuth, error }: WebLoginProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const authRef = useRef(onAuth);
   authRef.current = onAuth;
@@ -30,7 +19,6 @@ export default function WebLogin({
     const box = boxRef.current;
     if (!box) return;
 
-    // telegram-widget.js looks this function up by name (data-onauth).
     window.onTelegramAuth = (user) => authRef.current(user as TelegramWebUser);
 
     const script = document.createElement("script");
@@ -38,7 +26,7 @@ export default function WebLogin({
     script.async = true;
     script.setAttribute("data-telegram-login", BOT_USERNAME);
     script.setAttribute("data-size", "large");
-    script.setAttribute("data-radius", "12");
+    script.setAttribute("data-radius", "16");
     script.setAttribute("data-onauth", "onTelegramAuth(user)");
     script.setAttribute("data-request-access", "write");
     box.appendChild(script);
@@ -50,36 +38,46 @@ export default function WebLogin({
   }, []);
 
   return (
-    <section className="mt-6 rounded-3xl bg-white p-6 text-center shadow-md">
-      <p className="text-4xl" aria-hidden>
-        🔐
-      </p>
-      <h2 className="mt-2 text-xl font-extrabold text-blue-900">Telegram orqali kiring</h2>
-      <p className="mt-2 text-sm leading-relaxed text-slate-500">
-        Saytdan brauzerda foydalanmoqdasiz. Hisobingiz, sinfingiz va
-        progress saqlanishi uchun Telegram hisobingiz bilan kiring.
-      </p>
+    <div className="mx-auto max-w-md animate-fade-in py-8">
+      <Card variant="elevated" className="p-8 text-center bg-white">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-50 text-blue-600 shadow-xs">
+          <IconLock size={32} />
+        </div>
 
-      <div ref={boxRef} className="mt-5 flex min-h-12 items-center justify-center" />
+        <h2 className="text-xl sm:text-2xl font-black text-slate-900">
+          EduQuest tizimiga kirish
+        </h2>
 
-      <p className="mt-4 text-[11px] text-slate-400">
-        Tugma ko‘rinmasa, sahifani yangilang yoki saytni{" "}
-        <a
-          className="font-semibold text-blue-500 underline"
-          href={`https://t.me/${BOT_USERNAME}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          @{BOT_USERNAME}
-        </a>{" "}
-        orqali oching.
-      </p>
-
-      {error && (
-        <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
-          {error}
+        <p className="mt-2 text-xs sm:text-sm text-slate-500 leading-relaxed">
+          Saytdan to‘liq foydalanish va dars progressini saqlash uchun Telegram hisobingiz orqali kiring.
         </p>
-      )}
-    </section>
+
+        <div
+          ref={boxRef}
+          className="mt-6 flex min-h-12 items-center justify-center"
+        />
+
+        <div className="mt-6 pt-5 border-t border-slate-100 text-[11px] text-slate-400">
+          <p>
+            Kirish tugmasi chiqmasa, rasmiy bot orqali oching:
+          </p>
+          <a
+            href={`https://t.me/${BOT_USERNAME}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline"
+          >
+            <span>@{BOT_USERNAME}</span>
+            <IconExternalLink size={12} />
+          </a>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-700">
+            {error}
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import QuestMascot from "./components/QuestMascot";
+import Navbar from "./components/Navbar";
+import type { NavTab } from "./components/Navbar";
 import SubjectCard from "./components/SubjectCard";
 import SubjectLessons from "./components/SubjectLessons";
 import GradePicker from "./components/GradePicker";
@@ -9,8 +10,27 @@ import ResultScreen from "./components/ResultScreen";
 import AdminPage from "./components/AdminPage";
 import WebLogin from "./components/WebLogin";
 import { AchievementsPage, ProfilePage } from "./components/Pages";
+import Card from "./components/ui/Card";
+import Button from "./components/ui/Button";
+import Badge from "./components/ui/Badge";
+import EmptyState from "./components/ui/EmptyState";
+import {
+  IconGraduationCap,
+  IconStar,
+  IconPlay,
+  IconSparkles,
+  IconArrowRight,
+} from "./components/ui/Icons";
 import { api, ApiError } from "./api";
-import type { Grade, Profile, Progress, QuizResult, SubjectItem, TelegramWebUser } from "./types";
+import type {
+  Grade,
+  LessonSummary,
+  Profile,
+  Progress,
+  QuizResult,
+  SubjectItem,
+  TelegramWebUser,
+} from "./types";
 
 type Phase =
   | "boot"
@@ -21,7 +41,6 @@ type Phase =
   | "home"
   | "error";
 
-/** In-app navigation after the pupil reaches "home". */
 type View =
   | { kind: "home" }
   | { kind: "subject"; subjectId: number }
@@ -32,27 +51,20 @@ type View =
   | { kind: "profile" }
   | { kind: "admin" };
 
-const GRADIENTS = [
-  "from-blue-500 to-blue-700",
-  "from-sky-400 to-blue-600",
-  "from-indigo-500 to-blue-700",
-];
-
-// Browser sessions only (inside Telegram we always re-login with initData).
 const TOKEN_KEY = "eduquest_token";
 
 function readStoredToken(): string {
   try {
     return window.localStorage.getItem(TOKEN_KEY) ?? "";
   } catch {
-    return ""; // private mode / storage disabled
+    return "";
   }
 }
 function storeToken(value: string) {
   try {
     window.localStorage.setItem(TOKEN_KEY, value);
   } catch {
-    /* the in-memory token still works for this tab */
+    /* session in memory fallback */
   }
 }
 function clearStoredToken() {
@@ -76,7 +88,7 @@ export default function App() {
   const [subjects, setSubjects] = useState<SubjectItem[]>([]);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [view, setView] = useState<View>({ kind: "home" });
-  const [quizNonce, setQuizNonce] = useState(0); // force fresh QuizPage on retry
+  const [quizNonce, setQuizNonce] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -86,7 +98,7 @@ export default function App() {
   const showToast = (msg: string) => {
     setToast(msg);
     window.Telegram?.WebApp?.HapticFeedback?.impactOccurred("light");
-    window.setTimeout(() => setToast(null), 2400);
+    window.setTimeout(() => setToast(null), 2500);
   };
 
   const loadHome = useCallback(async (tk: string) => {
@@ -95,20 +107,21 @@ export default function App() {
     setProgress(prog);
   }, []);
 
-  const bootstrap = useCallback(async (tk: string) => {
-    const me = await api.me(tk);
-    setProfile(me);
-    if (me.needs_grade_selection) {
-      setGrades(await api.grades(tk));
-      setPhase("onboarding");
-    } else {
-      await loadHome(tk);
-      setPhase("home");
-    }
-  }, [loadHome]);
+  const bootstrap = useCallback(
+    async (tk: string) => {
+      const me = await api.me(tk);
+      setProfile(me);
+      if (me.needs_grade_selection) {
+        setGrades(await api.grades(tk));
+        setPhase("onboarding");
+      } else {
+        await loadHome(tk);
+        setPhase("home");
+      }
+    },
+    [loadHome],
+  );
 
-  // Boot: inside Telegram verify initData; in a browser use the Telegram
-  // Login Widget session (stored JWT) or show the widget.
   useEffect(() => {
     if (started.current) return;
     started.current = true;
@@ -124,7 +137,7 @@ export default function App() {
         try {
           setPhase("busy");
           const { access_token } = await api.login(tg.initData);
-          clearStoredToken(); // inside Telegram, identity always comes fresh
+          clearStoredToken();
           setToken(access_token);
           setWebSession(false);
           await bootstrap(access_token);
@@ -141,6 +154,7 @@ export default function App() {
       setPhase("web_login");
       return;
     }
+
     (async () => {
       try {
         setPhase("busy");
@@ -168,6 +182,7 @@ export default function App() {
       await loadHome(token);
       setView({ kind: "home" });
       setPhase("home");
+      showToast(`${grade.name} muvaffaqiyatli tanlandi!`);
     } catch (e) {
       setError(describe(e));
       setPhase("error");
@@ -220,18 +235,19 @@ export default function App() {
     setPhase("web_login");
   };
 
-  /** After a quiz result: refresh counts and return to the lesson ladder. */
   const finishQuiz = async (subjectId: number) => {
     try {
       await loadHome(token);
     } catch {
-      /* counts refresh is best-effort; the pupil still sees fresh data next open */
+      /* non-fatal */
     }
     setView({ kind: "subject", subjectId });
   };
 
-  const name = profile?.first_name || progress?.first_name || "Qahramon";
+  const name = profile?.first_name || progress?.first_name || "O‘quvchi";
   const gradeLabel = profile?.grade_name ?? progress?.grade_name;
+  const starsTotal = progress?.stars_total ?? 0;
+
   const activeSubject =
     view.kind !== "home" && "subjectId" in view
       ? subjects.find((s) => s.id === view.subjectId)
@@ -239,228 +255,384 @@ export default function App() {
 
   const navTo = (v: View) => {
     setView(v);
-    window.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const currentTab: NavTab =
+    view.kind === "home"
+      ? "home"
+      : view.kind === "subject" || view.kind === "lesson" || view.kind === "quiz" || view.kind === "result"
+        ? "lessons"
+        : view.kind === "achievements"
+          ? "achievements"
+          : view.kind === "profile"
+            ? "profile"
+            : view.kind === "admin"
+              ? "admin"
+              : "home";
+
+  const handleTabChange = (tab: NavTab) => {
+    if (tab === "home") navTo({ kind: "home" });
+    else if (tab === "lessons") {
+      if (view.kind === "home") {
+        const el = document.getElementById("subjects-section");
+        if (el) el.scrollIntoView({ behavior: "smooth" });
+      } else {
+        navTo({ kind: "home" });
+      }
+    } else if (tab === "achievements") navTo({ kind: "achievements" });
+    else if (tab === "profile") navTo({ kind: "profile" });
+    else if (tab === "admin") navTo({ kind: "admin" });
+  };
+
+  // Find next lesson to continue learning
+  let continueItem: { subject: SubjectItem; lesson: LessonSummary } | null = null;
+  for (const s of subjects) {
+    const nextL = s.lessons.find((l) => l.unlocked && !l.passed);
+    if (nextL) {
+      continueItem = { subject: s, lesson: nextL };
+      break;
+    }
+  }
+
+  // Calculate overall metrics
+  const totalLessonsCount = subjects.reduce((acc, s) => acc + s.lessons.length, 0);
+  const passedLessonsCount = subjects.reduce(
+    (acc, s) => acc + s.lessons.filter((l) => l.passed).length,
+    0,
+  );
+
   return (
-    <div className="mx-auto flex min-h-full max-w-md flex-col px-4 pb-24 pt-6">
-      {/* Header */}
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-extrabold text-blue-800">EduQuest</h1>
-          <p className="text-sm text-blue-500">
-            {phase === "home" && gradeLabel ? `${gradeLabel} · ` : ""}
-            {phase === "web_login"
-              ? "Telegram orqali kiring"
-              : `Xush kelibsiz, ${name}!`}
-          </p>
-        </div>
-        <div className="rounded-full bg-amber-100 px-4 py-2 text-lg font-bold text-amber-600 shadow-sm">
-          ⭐ {phase === "home" ? progress?.stars_total ?? 0 : 0}
-        </div>
-      </header>
-
-      {/* Mascot + greeting (home only, to keep lesson screens focused) */}
-      {phase === "home" && view.kind === "home" && (
-        <section className="mt-6 flex flex-col items-center rounded-3xl bg-white p-6 shadow-md">
-          <QuestMascot size={110} />
-          <p className="mt-3 text-center text-base font-semibold text-blue-900">
-            Salom! Men Quest 🤖
-          </p>
-          <p className="mt-1 text-center text-sm text-slate-500">
-            Birga bilimlar olamiga sayohat qilamiz!
-          </p>
-        </section>
-      )}
-
-      {/* Main content */}
-      {phase === "boot" || phase === "busy" ? (
-        <p className="mt-8 text-center text-sm font-medium text-blue-500">Yuklanmoqda… ⏳</p>
-      ) : phase === "no_backend" ? (
-        <Notice
-          title="Backend sozlanmagan"
-          body="Mini App server manzilini topa olmadi. webapp/.env fayliga VITE_API_URL qiymatini kiriting (masalan http://127.0.0.1:8000)."
-        />
-      ) : phase === "web_login" ? (
-        <WebLogin onAuth={handleWebLogin} error={error} />
-      ) : phase === "error" ? (
-        <Notice title="Xatolik yuz berdi" body={error} tone="error" />
-      ) : phase === "onboarding" ? (
-        <GradePicker
-          grades={grades}
-          busy={busy}
-          onPick={pickGrade}
-          onCancel={
-            // Changing grade must be cancellable; first-run onboarding is not
-            // (a pupil cannot use the app without picking a grade).
-            profile?.grade_id != null ? () => setPhase("home") : undefined
-          }
-        />
-      ) : view.kind === "home" ? (
-        /* ---------- HOME: subject cards ---------- */
-        <section className="mt-6 space-y-3">
-          <div className="flex items-center justify-between px-1">
-            <h2 className="text-sm font-bold uppercase tracking-wide text-blue-400">
-              {gradeLabel ? `${gradeLabel} fanlari` : "Fanlar"}
-            </h2>
-            <button
-              onClick={changeGrade}
-              className="text-xs font-semibold text-blue-500 underline-offset-2 hover:underline"
-            >
-              Sinfni o‘zgartirish
-            </button>
-          </div>
-
-          {subjects.length === 0 ? (
-            <div className="rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50 p-5 text-center">
-              <p className="text-sm font-semibold text-blue-700">
-                Bu sinf uchun darslar hozircha tayyorlanmoqda 🚧
-              </p>
-              <p className="mt-1 text-xs text-blue-400">
-                1–4-sinflarda namuna darslar bor; qolgan sinflar admin panel
-                orqali to‘ldiriladi.
-              </p>
-            </div>
-          ) : (
-            subjects.map((s, i) => {
-              const total = s.lessons.length;
-              const done = s.lessons.filter((l) => l.passed).length;
-              return (
-                <SubjectCard
-                  key={s.id}
-                  title={s.name}
-                  emoji={s.emoji}
-                  gradient={GRADIENTS[i % GRADIENTS.length]}
-                  subtitle={total ? `${done}/${total} bosqich tugatilgan →` : "Tez orada 🚧"}
-                  onClick={() =>
-                    total ? navTo({ kind: "subject", subjectId: s.id }) : showToast("Bu fanda darslar hozircha yo‘q 🚧")
-                  }
-                />
-              );
-            })
-          )}
-        </section>
-      ) : view.kind === "subject" && activeSubject ? (
-        /* ---------- SUBJECT: lesson ladder ---------- */
-        <SubjectLessons
-          subject={activeSubject}
-          onOpenLesson={(lessonId) =>
-            navTo({ kind: "lesson", lessonId, subjectId: activeSubject.id })
-          }
-          onBack={() => navTo({ kind: "home" })}
-        />
-      ) : view.kind === "lesson" ? (
-        /* ---------- LESSON: explanation + mark viewed ---------- */
-        <LessonPage
-          token={token}
-          lessonId={view.lessonId}
-          onBack={() => navTo({ kind: "subject", subjectId: view.subjectId })}
-          onViewed={() => loadHome(token).catch(() => undefined)}
-          onStartQuiz={() =>
-            navTo({ kind: "quiz", lessonId: view.lessonId, subjectId: view.subjectId })
-          }
-        />
-      ) : view.kind === "quiz" ? (
-        /* ---------- QUIZ: questions ---------- */
-        <QuizPage
-          key={quizNonce}
-          token={token}
-          lessonId={view.lessonId}
-          onBack={() => navTo({ kind: "lesson", lessonId: view.lessonId, subjectId: view.subjectId })}
-          onResult={(r) =>
-            navTo({ kind: "result", lessonId: view.lessonId, subjectId: view.subjectId, result: r })
-          }
-        />
-      ) : view.kind === "result" ? (
-        /* ---------- RESULT: server verdict ---------- */
-        <ResultScreen
-          result={view.result}
-          onRetry={() => {
-            setQuizNonce((n) => n + 1);
-            navTo({ kind: "quiz", lessonId: view.lessonId, subjectId: view.subjectId });
-          }}
-          onContinue={() => finishQuiz(view.subjectId)}
-        />
-      ) : view.kind === "achievements" ? (
-        <AchievementsPage progress={progress} />
-      ) : view.kind === "admin" ? (
-        <AdminPage token={token} notify={showToast} />
-      ) : (
-        <ProfilePage
-          profile={profile}
-          progress={progress}
-          onChangeGrade={changeGrade}
-          onLogout={webSession ? logout : undefined}
-        />
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-24 left-1/2 z-50 w-[90%] max-w-md -translate-x-1/2 rounded-xl bg-blue-900 px-4 py-3 text-center text-sm font-medium text-white shadow-lg">
-          {toast}
-        </div>
-      )}
-
-      {/* Bottom nav — only on the home phase, so no dead buttons elsewhere */}
+    <div className="flex min-h-screen flex-col bg-[#F7F9FC] text-slate-900 antialiased selection:bg-blue-100 selection:text-blue-900">
+      {/* Top Navigation */}
       {phase === "home" && (
-      <nav className="fixed inset-x-0 bottom-0 mx-auto flex max-w-md justify-around border-t border-blue-100 bg-white py-3">
-        {[
-          { key: "home", label: "Bosh sahifa", emoji: "🏠" },
-          { key: "lessons", label: "Darslar", emoji: "📚" },
-          { key: "achievements", label: "Yutuqlar", emoji: "🏆" },
-          { key: "profile", label: "Profil", emoji: "👤" },
-          ...(profile?.is_admin ? [{ key: "admin", label: "Admin", emoji: "🛠" }] : []),
-        ].map((item) => {
-          const active =
-            item.key === "home"
-              ? view.kind === "home"
-              : item.key === "lessons"
-                ? view.kind === "subject" || view.kind === "lesson" || view.kind === "quiz" || view.kind === "result"
-                : view.kind === item.key;
-          const go = () => {
-            if (phase !== "home") return;
-            if (item.key === "home" || item.key === "lessons") navTo({ kind: "home" });
-            else navTo({ kind: item.key as "achievements" | "profile" | "admin" });
-          };
-          return active ? (
-            <span key={item.key} className="flex flex-col items-center text-xs font-bold text-blue-700">
-              <span className="text-xl">{item.emoji}</span>
-              {item.label}
-            </span>
-          ) : (
-            <button
-              key={item.key}
-              onClick={go}
-              className="flex flex-col items-center text-xs text-slate-400"
+        <Navbar
+          currentTab={currentTab}
+          onTabChange={handleTabChange}
+          stars={starsTotal}
+          gradeLabel={gradeLabel}
+          onChangeGrade={changeGrade}
+          isAdmin={profile?.is_admin}
+        />
+      )}
+
+      {/* Main Content Area */}
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6 py-4 sm:py-6 safe-pb">
+        {/* Loading / Boot states */}
+        {phase === "boot" || phase === "busy" ? (
+          <div className="mx-auto max-w-md py-20 text-center animate-fade-in">
+            <div className="inline-block h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+            <p className="mt-4 text-sm font-bold text-slate-600">EduQuest yuklanmoqda…</p>
+            <p className="text-xs text-slate-400 mt-1">O‘rganish — endi o‘yin!</p>
+          </div>
+        ) : phase === "no_backend" ? (
+          <div className="mx-auto max-w-md py-12">
+            <Card className="p-8 text-center border-amber-200 bg-amber-50/50">
+              <span className="text-4xl mb-3 block">⚙️</span>
+              <h2 className="text-lg font-bold text-slate-800">Server sozlanmagan</h2>
+              <p className="mt-2 text-xs text-slate-600">
+                Frontend backend manzilini topa olmadi. Iltimos, VITE_API_URL qiymatini tekshiring.
+              </p>
+            </Card>
+          </div>
+        ) : phase === "web_login" ? (
+          <WebLogin onAuth={handleWebLogin} error={error} />
+        ) : phase === "error" ? (
+          <div className="mx-auto max-w-md py-12">
+            <Card className="p-8 text-center border-rose-200 bg-rose-50/50">
+              <span className="text-4xl mb-3 block">⚠️</span>
+              <h2 className="text-lg font-bold text-rose-800">Xatolik yuz berdi</h2>
+              <p className="mt-2 text-xs text-rose-600">{error}</p>
+              <div className="mt-6">
+                <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
+                  Qayta yuklash
+                </Button>
+              </div>
+            </Card>
+          </div>
+        ) : phase === "onboarding" ? (
+          <GradePicker
+            grades={grades}
+            busy={busy}
+            currentGradeId={profile?.grade_id}
+            onPick={pickGrade}
+            onCancel={profile?.grade_id != null ? () => setPhase("home") : undefined}
+          />
+        ) : view.kind === "home" ? (
+          /* ===================== HOMEPAGE ===================== */
+          <div className="space-y-6 sm:space-y-8 animate-fade-in">
+            {/* Mobile Header (Shows only on small screens where top navbar is hidden) */}
+            <div className="flex md:hidden items-center justify-between py-1">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                  EduQuest
+                </span>
+                <h1 className="text-xl font-black text-slate-900">
+                  Salom, {name}! 👋
+                </h1>
+              </div>
+              <div className="flex items-center gap-2">
+                {gradeLabel && (
+                  <button
+                    onClick={changeGrade}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold"
+                  >
+                    <IconGraduationCap size={14} />
+                    <span>{gradeLabel}</span>
+                  </button>
+                )}
+                <div className="flex items-center gap-1 px-3 py-1 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-black shadow-xs">
+                  <IconStar size={14} filled className="text-amber-500" />
+                  <span>{starsTotal}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Hero Banner Section */}
+            <Card
+              variant="elevated"
+              className="relative overflow-hidden p-6 sm:p-8 bg-gradient-to-br from-[#3478F6] via-blue-600 to-indigo-700 text-white border-0 shadow-lg shadow-blue-500/15"
             >
-              <span className="text-xl">{item.emoji}</span>
-              {item.label}
-            </button>
-          );
-        })}
-      </nav>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+                <div className="space-y-2 max-w-xl">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-xs font-extrabold text-blue-100">
+                    <IconSparkles size={14} />
+                    <span>O‘rganish — endi o‘yin!</span>
+                  </div>
+
+                  <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                    Bugun qaysi yangi bilimni egallaymiz?
+                  </h2>
+
+                  <p className="text-sm text-blue-100 leading-relaxed">
+                    Har bir o‘rganilgan dars va topshirilgan test uchun yulduzlarni to‘plang hamda yangi bosqichlarni oching!
+                  </p>
+                </div>
+
+                {/* Overall Stats pill */}
+                <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md p-4 rounded-3xl border border-white/20">
+                  <div className="text-center px-3 border-r border-white/20">
+                    <span className="block text-2xl font-black text-amber-300">
+                      ⭐ {starsTotal}
+                    </span>
+                    <span className="text-[11px] font-bold text-blue-100">
+                      Yulduzlar
+                    </span>
+                  </div>
+                  <div className="text-center px-3">
+                    <span className="block text-2xl font-black text-white">
+                      {passedLessonsCount}/{totalLessonsCount}
+                    </span>
+                    <span className="text-[11px] font-bold text-blue-100">
+                      Darslar
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* "Davom etish" (Continue Learning) Card if there's an active unlocked lesson */}
+            {continueItem && (
+              <Card
+                variant="interactive"
+                onClick={() =>
+                  navTo({
+                    kind: "lesson",
+                    lessonId: continueItem!.lesson.id,
+                    subjectId: continueItem!.subject.id,
+                  })
+                }
+                className="p-5 sm:p-6 border-2 border-blue-200 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-white hover:border-blue-400"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-md shadow-blue-500/30">
+                      <IconPlay size={24} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="blue" size="sm">
+                          {continueItem.subject.name}
+                        </Badge>
+                        <span className="text-xs font-bold text-slate-400">
+                          {continueItem.lesson.level_order}-bosqich
+                        </span>
+                      </div>
+                      <h3 className="text-base sm:text-lg font-black text-slate-900 mt-0.5">
+                        {continueItem.lesson.title}
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        O‘qishni to‘xtagan joyingizdan davom ettiring
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="sm:self-center">
+                    <Button
+                      variant="primary"
+                      size="md"
+                      iconRight={<IconArrowRight size={16} />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navTo({
+                          kind: "lesson",
+                          lessonId: continueItem!.lesson.id,
+                          subjectId: continueItem!.subject.id,
+                        });
+                      }}
+                    >
+                      Darsni boshlash
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* Subjects Section */}
+            <div id="subjects-section" className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <div>
+                  <h2 className="text-lg sm:text-xl font-black text-slate-900">
+                    {gradeLabel ? `${gradeLabel} fanlari` : "Fanlar"}
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    O‘zingiz qiziqqan fanni tanlang va sayohatni boshlang
+                  </p>
+                </div>
+                <button
+                  onClick={changeGrade}
+                  className="flex items-center gap-1.5 text-xs font-extrabold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                >
+                  <IconGraduationCap size={16} />
+                  <span>Sinfni o‘zgartirish</span>
+                </button>
+              </div>
+
+              {subjects.length === 0 ? (
+                <EmptyState
+                  title="Darslar tayyorlanmoqda"
+                  description="Ushbu sinf uchun o‘quv dasturi tez kunda joylanadi. Hozircha 1–4-sinflarning namunaviy darslarini sinab ko‘rishingiz mumkin."
+                  actionText="Boshqa sinfni tanlash"
+                  onAction={changeGrade}
+                />
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {subjects.map((sub) => {
+                    const total = sub.lessons.length;
+                    const done = sub.lessons.filter((l) => l.passed).length;
+
+                    return (
+                      <SubjectCard
+                        key={sub.id}
+                        title={sub.name}
+                        emoji={sub.emoji}
+                        totalLessons={total}
+                        passedLessons={done}
+                        onClick={() => {
+                          if (total > 0) {
+                            navTo({ kind: "subject", subjectId: sub.id });
+                          } else {
+                            showToast("Bu fanda darslar hozircha tayyorlanmoqda 🚧");
+                          }
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Learning Inspiration Card */}
+            <Card variant="flat" className="p-5 sm:p-6 border border-slate-200">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 text-2xl">
+                  💡
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">
+                    O‘quvchilar uchun tavsiya
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                    Har kuni muntazam 15 daqiqa dars o‘qish bilimlarni mustahkamlaydi va keyingi bosqichlarni tezroq ochishga yordam beradi.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+        ) : view.kind === "subject" && activeSubject ? (
+          /* ===================== SUBJECT LESSONS ===================== */
+          <SubjectLessons
+            subject={activeSubject}
+            onOpenLesson={(lessonId) =>
+              navTo({ kind: "lesson", lessonId, subjectId: activeSubject.id })
+            }
+            onBack={() => navTo({ kind: "home" })}
+          />
+        ) : view.kind === "lesson" ? (
+          /* ===================== LESSON PAGE ===================== */
+          <LessonPage
+            token={token}
+            lessonId={view.lessonId}
+            onBack={() => navTo({ kind: "subject", subjectId: view.subjectId })}
+            onViewed={() => loadHome(token).catch(() => undefined)}
+            onStartQuiz={() =>
+              navTo({ kind: "quiz", lessonId: view.lessonId, subjectId: view.subjectId })
+            }
+          />
+        ) : view.kind === "quiz" ? (
+          /* ===================== QUIZ PAGE ===================== */
+          <QuizPage
+            key={quizNonce}
+            token={token}
+            lessonId={view.lessonId}
+            onBack={() =>
+              navTo({ kind: "lesson", lessonId: view.lessonId, subjectId: view.subjectId })
+            }
+            onResult={(r) =>
+              navTo({
+                kind: "result",
+                lessonId: view.lessonId,
+                subjectId: view.subjectId,
+                result: r,
+              })
+            }
+          />
+        ) : view.kind === "result" ? (
+          /* ===================== RESULT SCREEN ===================== */
+          <ResultScreen
+            result={view.result}
+            onRetry={() => {
+              setQuizNonce((n) => n + 1);
+              navTo({ kind: "quiz", lessonId: view.lessonId, subjectId: view.subjectId });
+            }}
+            onContinue={() => finishQuiz(view.subjectId)}
+          />
+        ) : view.kind === "achievements" ? (
+          /* ===================== ACHIEVEMENTS ===================== */
+          <AchievementsPage progress={progress} />
+        ) : view.kind === "admin" ? (
+          /* ===================== ADMIN PAGE ===================== */
+          <AdminPage token={token} notify={showToast} />
+        ) : (
+          /* ===================== PROFILE PAGE ===================== */
+          <ProfilePage
+            profile={profile}
+            progress={progress}
+            onChangeGrade={changeGrade}
+            onLogout={webSession ? logout : undefined}
+          />
+        )}
+      </main>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-24 md:bottom-8 left-1/2 z-50 -translate-x-1/2 animate-scale-in">
+          <div className="flex items-center gap-2 rounded-2xl bg-slate-900/90 backdrop-blur-md px-5 py-3 text-xs sm:text-sm font-bold text-white shadow-xl shadow-slate-900/20">
+            <IconSparkles size={16} className="text-amber-400" />
+            <span>{toast}</span>
+          </div>
+        </div>
       )}
     </div>
-  );
-}
-
-function Notice({
-  title,
-  body,
-  tone = "info",
-}: {
-  title: string;
-  body: string;
-  tone?: "info" | "error";
-}) {
-  const styles =
-    tone === "error"
-      ? "border-rose-200 bg-rose-50 text-rose-700"
-      : "border-blue-200 bg-blue-50 text-blue-700";
-  return (
-    <section className={`mt-6 rounded-2xl border-2 border-dashed p-5 text-center ${styles}`}>
-      <p className="text-sm font-bold">{title}</p>
-      <p className="mt-1 text-xs opacity-80">{body}</p>
-    </section>
   );
 }

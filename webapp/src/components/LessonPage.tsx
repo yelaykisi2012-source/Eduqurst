@@ -1,38 +1,41 @@
-/**
- * LessonPage.tsx — reads the lesson (explanation + materials), then the
- * pupil taps "O'qib bo'ldim" which records the view on the server (small
- * star reward) and unlocks the quiz button.
- */
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
 import type { LessonDetail, Material } from "../types";
-import { BackButton } from "./SubjectLessons";
+import Card from "./ui/Card";
+import Button from "./ui/Button";
+import Badge from "./ui/Badge";
+import {
+  IconArrowLeft,
+  IconPlay,
+  IconDownload,
+  IconExternalLink,
+  IconFileText,
+  IconCheck,
+  IconStar,
+  IconSparkles,
+} from "./ui/Icons";
 
 const isLink = (value: string) => /^https?:\/\//i.test(value.trim());
 
-const sizeLabel = (bytes: number | null) => {
+const formatBytes = (bytes: number | null) => {
   if (!bytes) return "";
   if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(bytes / 1000))} KB`;
 };
 
-/**
- * An uploaded material (Telegram file): PDF downloads, video plays inline.
- * Bytes come from /api/materials/{id}/file with the token only in the header.
- */
+/** Uploaded file material (PDF/Video via Telegram file id) */
 function FileMaterialCard({ material, token }: { material: Material; token: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    return () => {
       if (videoUrl) URL.revokeObjectURL(videoUrl);
-    },
-    [videoUrl],
-  );
+    };
+  }, [videoUrl]);
 
-  const open = async () => {
+  const handleOpen = async () => {
     setBusy(true);
     setError("");
     try {
@@ -57,94 +60,129 @@ function FileMaterialCard({ material, token }: { material: Material; token: stri
   };
 
   const isVideo = material.kind === "video";
-  const meta = [material.file_name, sizeLabel(material.file_size)].filter(Boolean).join(" · ");
+  const meta = [material.file_name, formatBytes(material.file_size)].filter(Boolean).join(" · ");
 
   return (
     <div className="mt-3">
-      <button
-        onClick={open}
-        disabled={busy}
-        className="flex w-full items-center gap-3 rounded-2xl border-2 border-blue-200 bg-white px-4 py-3 text-left shadow-sm active:scale-[0.99] disabled:opacity-50"
-      >
-        <span className="text-xl">{isVideo ? "▶️" : "📥"}</span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-bold text-blue-900">{material.title}</span>
-          <span className="block text-xs font-semibold text-blue-500">
-            {busy ? "Yuklanmoqda…" : isVideo ? "Videoni ochish" : "PDF’ni yuklab olish"}
-          </span>
-        </span>
-        {meta && <span className="shrink-0 text-[10px] font-medium text-slate-400">{meta}</span>}
-      </button>
-      {error && <p className="mt-1 text-xs font-semibold text-rose-500">{error}</p>}
-      {videoUrl && (
-        <video
-          controls
-          src={videoUrl}
-          className="mt-2 w-full rounded-2xl border-2 border-blue-100 bg-black"
+      <div className="flex items-center justify-between gap-3 p-4 rounded-2xl border border-blue-100 bg-white shadow-xs">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+            {isVideo ? <IconPlay size={20} /> : <IconDownload size={20} />}
+          </div>
+          <div className="min-w-0">
+            <h4 className="text-sm font-bold text-slate-800 truncate">{material.title}</h4>
+            <p className="text-xs text-slate-400 truncate">{meta || (isVideo ? "Video darslik" : "PDF fayl")}</p>
+          </div>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={busy}
+          onClick={handleOpen}
+          icon={isVideo ? <IconPlay size={14} /> : <IconDownload size={14} />}
         >
-          Brauzeringiz videoni qo‘llab-quvvatlamaydi.
-        </video>
+          {isVideo ? "Ochish" : "Yuklab olish"}
+        </Button>
+      </div>
+
+      {error && <p className="mt-1.5 text-xs font-semibold text-rose-500">{error}</p>}
+
+      {videoUrl && (
+        <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-md">
+          <video controls src={videoUrl} className="w-full max-h-96">
+            Brauzeringiz video formatini qo‘llab-quvvatlamaydi.
+          </video>
+        </div>
       )}
     </div>
   );
 }
 
-/** One lesson material in the four supported formats (+ legacy image). */
-function MaterialCard({ material, token }: { material: Material; token: string }) {
+/** Standard lesson material card */
+function MaterialItem({ material, token }: { material: Material; token: string }) {
   const { kind, title, content } = material;
 
-  // Uploaded Telegram file (pdf/video) — no URL involved.
   if (material.file_id) {
     return <FileMaterialCard material={material} token={token} />;
   }
 
+  // Legacy image or link in text
   if (kind === "image" || (kind === "text" && isLink(content))) {
     return (
-      <div className="mt-3 rounded-2xl border-2 border-blue-100 bg-blue-50 p-4">
-        {title && <p className="text-sm font-bold text-blue-800">📌 {title}</p>}
+      <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs">
+        {title && <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">{title}</h4>}
         {kind === "image" ? (
-          <img src={content} alt={title} className="mt-2 w-full rounded-xl" />
+          <img src={content} alt={title} className="w-full rounded-xl object-contain max-h-80" />
         ) : (
           <a
             href={content}
             target="_blank"
             rel="noreferrer"
-            className="mt-1 block break-all text-sm font-semibold text-blue-600 underline"
+            className="flex items-center gap-2 text-sm font-bold text-blue-600 hover:underline break-all"
           >
-            {content}
+            <span>{content}</span>
+            <IconExternalLink size={14} />
           </a>
         )}
       </div>
     );
   }
 
+  // External link formats (video, pdf, live)
   if (kind === "video" || kind === "pdf" || kind === "live") {
-    const icon = kind === "video" ? "▶️" : kind === "pdf" ? "📄" : "🔴";
-    const label = kind === "video" ? "Videoni ko‘rish" : kind === "pdf" ? "PDF’ni ochish" : "Jonli darsga qo‘shilish";
+    const isLive = kind === "live";
+    const isPdf = kind === "pdf";
     return (
       <a
         href={content}
         target="_blank"
         rel="noreferrer"
-        className="mt-3 flex items-center gap-3 rounded-2xl border-2 border-blue-200 bg-white px-4 py-3 shadow-sm active:scale-[0.99]"
+        className="mt-3 flex items-center justify-between p-4 rounded-2xl border border-slate-200/80 bg-white hover:border-blue-300 hover:bg-blue-50/30 transition-all shadow-xs group"
       >
-        <span className="text-xl">{icon}</span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-bold text-blue-900">{title}</span>
-          <span className="block text-xs font-semibold text-blue-500">{label}</span>
-        </span>
-        <span className="text-blue-400">→</span>
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
+              isLive
+                ? "bg-rose-50 text-rose-600 border border-rose-200"
+                : isPdf
+                  ? "bg-amber-50 text-amber-600 border border-amber-200"
+                  : "bg-blue-50 text-blue-600 border border-blue-200"
+            }`}
+          >
+            {isLive ? <span className="h-3 w-3 rounded-full bg-rose-500 animate-pulse" /> : isPdf ? <IconFileText size={20} /> : <IconPlay size={18} />}
+          </div>
+          <div className="min-w-0">
+            <h4 className="text-sm font-bold text-slate-800 group-hover:text-blue-600 transition-colors truncate">
+              {title}
+            </h4>
+            <span className="text-xs text-slate-400">
+              {isLive ? "Jonli dars havolasi" : isPdf ? "Elektron qo‘llanma (PDF)" : "Video darslik"}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs font-bold text-blue-600">
+          <span>Ochish</span>
+          <IconExternalLink size={14} />
+        </div>
       </a>
     );
   }
 
-  // text (yozma matn) and anything unknown → printed notes
+  // Written notes / text
   return (
-    <div className="mt-3 rounded-2xl border-2 border-blue-100 bg-blue-50 p-4">
-      {title && <p className="text-sm font-bold text-blue-800">📝 {title}</p>}
-      <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-blue-900">{content}</p>
+    <div className="mt-3 rounded-2xl border border-blue-100/80 bg-blue-50/40 p-4">
+      {title && <h4 className="text-xs font-bold uppercase tracking-wider text-blue-600 mb-1.5">{title}</h4>}
+      <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-line">{content}</p>
     </div>
   );
+}
+
+interface LessonPageProps {
+  token: string;
+  lessonId: number;
+  onBack: () => void;
+  onStartQuiz: () => void;
+  onViewed: () => void;
 }
 
 export default function LessonPage({
@@ -153,13 +191,7 @@ export default function LessonPage({
   onBack,
   onStartQuiz,
   onViewed,
-}: {
-  token: string;
-  lessonId: number;
-  onBack: () => void;
-  onStartQuiz: () => void;
-  onViewed: () => void; // refresh home counts
-}) {
+}: LessonPageProps) {
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -172,96 +204,193 @@ export default function LessonPage({
       .lesson(token, lessonId)
       .then((d) => alive && setLesson(d))
       .catch((e: unknown) =>
-        alive && setError(e instanceof ApiError ? e.message : "Yuklab bo'lmadi"),
+        alive && setError(e instanceof ApiError ? e.message : "Dars yuklanmadi"),
       );
     return () => {
       alive = false;
     };
   }, [token, lessonId]);
 
-  const markViewed = async () => {
+  const handleMarkViewed = async () => {
     setBusy(true);
     try {
       const r = await api.markViewed(token, lessonId);
       setLesson((l) => (l ? { ...l, viewed: true } : l));
-      if (r.stars_granted) setJustEarned(true);
+      if (r.stars_granted) {
+        setJustEarned(true);
+        window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("success");
+      }
       setEarnedTitles(r.new_achievement_titles ?? []);
       onViewed();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Xatolik");
+      setError(e instanceof ApiError ? e.message : "Xatolik yuz berdi");
     } finally {
       setBusy(false);
     }
   };
 
-  if (error)
+  if (error) {
     return (
-      <section className="mt-6 rounded-2xl border-2 border-dashed border-rose-200 bg-rose-50 p-5 text-center">
-        <p className="text-sm font-bold text-rose-700">Xatolik</p>
-        <p className="mt-1 text-xs text-rose-500">{error}</p>
-        <button onClick={onBack} className="mt-3 text-sm font-bold text-blue-500 underline">
-          ← Orqaga
-        </button>
-      </section>
+      <div className="mx-auto max-w-2xl py-6 animate-fade-in text-center">
+        <Card className="p-8">
+          <span className="text-4xl mb-3 block">⚠️</span>
+          <h3 className="text-lg font-bold text-slate-800">Xatolik yuz berdi</h3>
+          <p className="mt-1 text-sm text-slate-500 mb-6">{error}</p>
+          <Button variant="secondary" onClick={onBack}>
+            Orqaga qaytish
+          </Button>
+        </Card>
+      </div>
     );
-  if (!lesson)
-    return <p className="mt-8 text-center text-sm font-medium text-blue-500">Dars yuklanmoqda… ⏳</p>;
+  }
+
+  if (!lesson) {
+    return (
+      <div className="mx-auto max-w-2xl py-12 text-center animate-fade-in">
+        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+        <p className="mt-4 text-sm font-semibold text-slate-500">Dars yuklanmoqda…</p>
+      </div>
+    );
+  }
 
   return (
-    <section className="mt-6">
-      <BackButton onClick={onBack} />
-      <p className="mt-2 text-xs font-bold uppercase tracking-wide text-blue-400">
-        {lesson.subject_name} · {lesson.level_order}-bosqich
-      </p>
-      <h2 className="text-2xl font-extrabold text-blue-900">{lesson.title}</h2>
-
-      <article className="mt-4 whitespace-pre-line rounded-2xl bg-white p-5 text-[15px] leading-relaxed text-slate-700 shadow-md">
-        {lesson.explanation}
-      </article>
-
-      {lesson.video_url && isLink(lesson.video_url) && (
-        <a
-          href={lesson.video_url}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-3 flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-br from-rose-500 to-red-600 px-4 py-3 text-sm font-bold text-white shadow-md active:scale-[0.99]"
+    <div className="mx-auto max-w-3xl animate-fade-in py-2 pb-12">
+      {/* Top back button */}
+      <div className="mb-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<IconArrowLeft size={16} />}
+          onClick={onBack}
         >
-          🎬 Video darsni ko‘rish
-        </a>
+          Darslar ro‘yxatiga qaytish
+        </Button>
+      </div>
+
+      {/* Lesson Hero Header */}
+      <Card variant="elevated" className="mb-6 p-6 sm:p-7">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <Badge variant="blue" size="md">
+              {lesson.subject_name}
+            </Badge>
+            <span className="text-xs font-bold text-slate-400">
+              · {lesson.level_order}-bosqich
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200/80 text-xs font-bold">
+            <IconStar size={14} filled className="text-amber-500" />
+            <span>+{lesson.stars_reward} ⭐ mukofot</span>
+          </div>
+        </div>
+
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+          {lesson.title}
+        </h1>
+
+        {/* Video dars link if top-level */}
+        {lesson.video_url && isLink(lesson.video_url) && (
+          <div className="mt-4">
+            <a
+              href={lesson.video_url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-center gap-2.5 w-full rounded-2xl bg-gradient-to-r from-rose-500 to-red-600 px-5 py-3.5 text-sm font-extrabold text-white shadow-sm hover:shadow-md transition-all active:scale-[0.99]"
+            >
+              <IconPlay size={18} />
+              <span>Video darsni ochish</span>
+            </a>
+          </div>
+        )}
+      </Card>
+
+      {/* Lesson Explanation / Text Content */}
+      <div className="mb-6">
+        <div className="flex items-center gap-2 px-1 mb-2">
+          <IconFileText size={18} className="text-blue-600" />
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            Dars mavzusi va tushuntirishi
+          </h2>
+        </div>
+
+        <Card className="p-6 sm:p-7 leading-relaxed text-slate-800 text-[15px] sm:text-base whitespace-pre-line border border-slate-100 shadow-sm">
+          {lesson.explanation}
+        </Card>
+      </div>
+
+      {/* Materials List */}
+      {lesson.materials.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 px-1 mb-2">
+            Qo‘shimcha materiallar ({lesson.materials.length})
+          </h3>
+          <div className="space-y-2">
+            {lesson.materials.map((m) => (
+              <MaterialItem key={m.id} material={m} token={token} />
+            ))}
+          </div>
+        </div>
       )}
 
-      {lesson.materials.map((m) => (
-        <MaterialCard key={m.id} material={m} token={token} />
-      ))}
-
-      <div className="mt-6 space-y-3">
+      {/* Action / Quiz Unlock Area */}
+      <Card variant="flat" className="p-6 sm:p-7 text-center border border-slate-200">
         {!lesson.viewed ? (
-          <button
-            onClick={markViewed}
-            disabled={busy}
-            className="w-full rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 px-4 py-4 text-center text-base font-bold text-white shadow-md transition-transform active:scale-95 disabled:opacity-50"
-          >
-            {busy ? "Saqlanmoqda…" : "O'qib bo'ldim ✅"}
-          </button>
-        ) : (
-          <>
-            <p className="text-center text-sm font-semibold text-emerald-600">
-              {justEarned ? "Barakalla! +⭐ qo'shib olindi" : "Bu dars o'qilgan ✅"}
+          <div>
+            <h3 className="text-base font-bold text-slate-800">
+              Darsni to‘liq o‘rganib bo‘ldingizmi?
+            </h3>
+            <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+              Nazariy qismni o‘qib bo‘lgach, "O‘qib bo‘ldim" tugmasini bosing. Sizga yulduzcha beriladi va test topshirish imkoniyati ochiladi!
             </p>
+            <div className="mt-5 max-w-sm mx-auto">
+              <Button
+                variant="primary"
+                size="lg"
+                fullWidth
+                loading={busy}
+                onClick={handleMarkViewed}
+                icon={<IconCheck size={20} />}
+              >
+                O‘qib bo‘ldim ✅
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">
+              <IconCheck size={16} />
+              <span>{justEarned ? "Ajoyib! Yulduzcha hisobingizga qo‘shildi ⭐" : "Bu dars muvaffaqiyatli o‘qilgan ✅"}</span>
+            </div>
+
             {earnedTitles.length > 0 && (
-              <p className="text-center text-sm font-semibold text-amber-600">
+              <p className="text-xs font-bold text-amber-600">
                 🏆 Yangi yutuq: {earnedTitles.join(", ")}
               </p>
             )}
-            <button
-              onClick={onStartQuiz}
-              className="w-full rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 px-4 py-4 text-center text-base font-bold text-white shadow-md transition-transform active:scale-95"
-            >
-              Testni boshlash 🧩
-            </button>
-          </>
+
+            <div>
+              <h3 className="text-lg font-extrabold text-slate-900">
+                Bilimlarni sinab ko‘rish vaqti keldi!
+              </h3>
+              <p className="mt-1 text-xs text-slate-500">
+                O‘tish bali: {lesson.pass_threshold_percent}%. Muvaffaqiyatli o‘tsangiz, keyingi dars ochiladi.
+              </p>
+            </div>
+
+            <div className="max-w-sm mx-auto">
+              <Button
+                variant="accent"
+                size="lg"
+                fullWidth
+                onClick={onStartQuiz}
+                icon={<IconSparkles size={20} />}
+              >
+                Testni boshlash 🚀
+              </Button>
+            </div>
+          </div>
         )}
-      </div>
-    </section>
+      </Card>
+    </div>
   );
 }
