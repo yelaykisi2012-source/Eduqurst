@@ -44,17 +44,17 @@ export default function Navbar({
     <>
       {/* ================= DESKTOP / TABLET TOP NAVBAR ================= */}
       <header className="sticky top-0 z-40 hidden md:block border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           {/* Logo & Slogan */}
           <div
             onClick={() => handleTabClick("home")}
             className="flex items-center gap-3 cursor-pointer select-none group"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#3478F6] to-blue-700 text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
-              <span className="text-xl font-black">E</span>
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#3478F6] to-blue-700 text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
+              <span className="text-lg font-black">E</span>
             </div>
             <div>
-              <span className="text-xl font-extrabold tracking-tight text-slate-900 group-hover:text-blue-600 transition-colors">
+              <span className="text-lg font-extrabold tracking-tight text-slate-900 group-hover:text-blue-600 transition-colors">
                 EduQuest
               </span>
               <span className="hidden lg:inline-block ml-2 text-xs font-semibold text-slate-400">
@@ -64,7 +64,7 @@ export default function Navbar({
           </div>
 
           {/* Nav Links */}
-          <nav className="flex items-center gap-1 bg-slate-100/80 p-1.5 rounded-2xl">
+          <nav className="flex items-center gap-1 bg-slate-100/80 p-1 rounded-2xl">
             {tabs.map((tab) => {
               const active = currentTab === tab.key;
               const Icon = tab.icon;
@@ -72,13 +72,13 @@ export default function Navbar({
                 <button
                   key={tab.key}
                   onClick={() => handleTabClick(tab.key)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
                     active
                       ? "bg-white text-blue-600 shadow-xs"
                       : "text-slate-600 hover:text-slate-900 hover:bg-white/50"
                   }`}
                 >
-                  <Icon size={18} className={active ? "text-blue-600" : "text-slate-400"} />
+                  <Icon size={16} className={active ? "text-blue-600" : "text-slate-400"} />
                   <span>{tab.label}</span>
                 </button>
               );
@@ -86,20 +86,20 @@ export default function Navbar({
           </nav>
 
           {/* Right badges: Grade + Stars */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             {gradeLabel && (
               <button
                 onClick={onChangeGrade}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100/70 border border-blue-200/60 text-xs font-bold transition-colors cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100/70 border border-blue-200/60 text-xs font-bold transition-colors cursor-pointer"
                 title="Sinfni almashtirish"
               >
-                <IconGraduationCap size={16} />
+                <IconGraduationCap size={15} />
                 <span>{gradeLabel}</span>
               </button>
             )}
 
-            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200/60 font-extrabold text-sm shadow-xs">
-              <IconStar size={16} filled className="text-amber-500" />
+            <div className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200/60 font-extrabold text-xs sm:text-sm shadow-xs">
+              <IconStar size={15} filled className="text-amber-500" />
               <span>{stars}</span>
             </div>
           </div>
@@ -107,8 +107,8 @@ export default function Navbar({
       </header>
 
       {/* ================= MOBILE BOTTOM NAVIGATION BAR ================= */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 md:hidden border-t border-slate-200/90 bg-white/95 backdrop-blur-md pb-[env(safe-area-inset-bottom,0px)] shadow-lg">
-        <div className="grid grid-flow-col auto-cols-fr px-2 py-2">
+      <nav className="fixed inset-x-0 bottom-0 z-40 md:hidden border-t border-slate-200/80 bg-white/95 backdrop-blur-md pb-[env(safe-area-inset-bottom,0px)] shadow-lg">
+        <div className="grid grid-flow-col auto-cols-fr px-1 py-1">
           {tabs.map((tab) => {
             const active = currentTab === tab.key;
             const Icon = tab.icon;
@@ -116,18 +116,18 @@ export default function Navbar({
               <button
                 key={tab.key}
                 onClick={() => handleTabClick(tab.key)}
-                className={`flex flex-col items-center justify-center py-1 px-1 transition-all cursor-pointer ${
+                className={`flex flex-col items-center justify-center py-1 px-0.5 transition-all cursor-pointer ${
                   active ? "text-blue-600 font-bold" : "text-slate-400 hover:text-slate-600 font-medium"
                 }`}
               >
                 <div
-                  className={`relative flex h-8 w-12 items-center justify-center rounded-2xl transition-all ${
-                    active ? "bg-blue-50 text-blue-600" : ""
+                  className={`relative flex h-7 w-11 items-center justify-center rounded-xl transition-all ${
+                    active ? "bg-blue-50 text-blue-600 shadow-2xs" : ""
                   }`}
                 >
-                  <Icon size={20} className={active ? "text-blue-600" : "text-slate-400"} />
+                  <Icon size={18} className={active ? "text-blue-600" : "text-slate-400"} />
                 </div>
-                <span className="text-[10px] tracking-tight mt-0.5">{tab.label}</span>
+                <span className="text-[9.5px] tracking-tight mt-0.5 leading-none">{tab.label}</span>
               </button>
             );
           })}

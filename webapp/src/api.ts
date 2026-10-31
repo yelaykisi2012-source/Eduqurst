@@ -27,7 +27,14 @@ import type {
   TelegramWebUser,
 } from "./types";
 
-const API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+// In dev we call same-origin "/api" so Vite's proxy forwards to the backend and
+// the browser never sees a cross-origin request (the backend CORS allow-list
+// only contains the production site, so localhost would be blocked otherwise).
+// In production the build-time VITE_API_URL is baked in as before.
+const API_URL = import.meta.env.DEV
+  ? ""
+  : (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+const HAS_API = Boolean(API_URL) || import.meta.env.DEV;
 
 export class ApiError extends Error {
   constructor(
@@ -44,7 +51,7 @@ async function req<T>(
   path: string,
   opts: { method?: string; token?: string; body?: unknown } = {},
 ): Promise<T> {
-  if (!API_URL) {
+  if (!HAS_API) {
     throw new ApiError(0, "Backend manzili sozlanmagan (VITE_API_URL bo‘sh).", "no_api");
   }
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -81,7 +88,7 @@ async function req<T>(
 }
 
 export const api = {
-  hasBackend: () => Boolean(API_URL),
+  hasBackend: () => HAS_API,
 
   login: (initData: string) =>
     req<{ access_token: string; first_name: string }>("/api/auth/telegram", {
@@ -130,7 +137,7 @@ export const api = {
     token: string,
     materialId: number,
   ): Promise<{ blob: Blob; fileName: string }> => {
-    if (!API_URL) {
+    if (!HAS_API) {
       throw new ApiError(0, "Backend manzili sozlanmagan (VITE_API_URL bo‘sh).", "no_api");
     }
     const res = await fetch(`${API_URL}/api/materials/${materialId}/file`, {

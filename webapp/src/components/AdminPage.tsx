@@ -171,7 +171,7 @@ export default function AdminPage({ token, notify }: Props) {
   const activeSubject = activeGrade?.subjects.find((s) => s.id === subjectId) ?? null;
 
   return (
-    <section className="mt-6 space-y-5">
+    <section className="mt-4 space-y-4 pb-32 sm:pb-12">
       <div className="rounded-2xl bg-blue-900 p-4 text-white shadow-md">
         <p className="text-sm font-extrabold">🛠 Admin panel</p>
         <p className="mt-1 text-xs text-blue-200">

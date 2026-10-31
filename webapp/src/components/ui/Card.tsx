@@ -14,17 +14,17 @@ export default function Card({
 }: CardProps) {
   const paddingStyles = {
     none: "",
-    sm: "p-3.5",
-    md: "p-5",
-    lg: "p-6 sm:p-8",
+    sm: "p-2.5 sm:p-3.5",
+    md: "p-3.5 sm:p-5",
+    lg: "p-4 sm:p-7",
   };
 
   const variantStyles = {
-    default: "bg-white border border-slate-100 shadow-sm rounded-3xl",
-    elevated: "bg-white border border-slate-100/80 shadow-md shadow-slate-200/50 rounded-3xl",
-    flat: "bg-slate-50/80 border border-slate-100 rounded-2xl",
+    default: "bg-white border border-slate-100/90 shadow-xs sm:shadow-sm rounded-2xl sm:rounded-3xl",
+    elevated: "bg-white border border-slate-100/80 shadow-sm sm:shadow-md shadow-slate-200/50 rounded-2xl sm:rounded-3xl",
+    flat: "bg-slate-50/80 border border-slate-100 rounded-xl sm:rounded-2xl",
     interactive:
-      "bg-white border border-slate-100 shadow-sm hover:shadow-md hover:border-blue-100 transition-all duration-200 rounded-3xl cursor-pointer active:scale-[0.99]",
+      "bg-white border border-slate-100/90 shadow-xs sm:shadow-sm hover:shadow-md hover:border-blue-100 transition-all duration-200 rounded-2xl sm:rounded-3xl cursor-pointer active:scale-[0.99]",
   };
 
   return (

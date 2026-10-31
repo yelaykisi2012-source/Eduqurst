@@ -113,29 +113,29 @@ export default function QuizPage({
   };
 
   return (
-    <div className="mx-auto max-w-2xl animate-fade-in py-2 pb-16">
+    <div className="mx-auto max-w-2xl animate-fade-in py-1 pb-32 sm:pb-12">
       {/* Header bar: Back + Title */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <Button
           variant="ghost"
           size="sm"
-          icon={<IconArrowLeft size={16} />}
+          icon={<IconArrowLeft size={14} />}
           onClick={onBack}
         >
           Darsga qaytish
         </Button>
-        <span className="text-xs font-bold text-slate-400">
+        <span className="text-[11px] sm:text-xs font-bold text-slate-400">
           O‘tish bali: {quiz.pass_threshold_percent}%
         </span>
       </div>
 
       {/* Progress header */}
-      <Card variant="flat" className="mb-6 p-4 border border-slate-200">
-        <div className="flex items-center justify-between text-xs font-extrabold text-slate-700 mb-2">
+      <Card variant="flat" padding="none" className="mb-3.5 sm:mb-6 p-3 sm:p-4 border border-slate-200">
+        <div className="flex items-center justify-between text-xs font-extrabold text-slate-700 mb-1.5">
           <span>
             Savol <span className="text-blue-600 font-black">{currentIndex + 1}</span> / {questions.length}
           </span>
-          <span className="text-slate-400 font-semibold">
+          <span className="text-slate-400 font-semibold text-[11px]">
             {answeredCount} ta belgilandi
           </span>
         </div>
@@ -143,23 +143,23 @@ export default function QuizPage({
       </Card>
 
       {/* Single Question Card */}
-      <Card variant="elevated" className="mb-6 p-6 sm:p-7 animate-scale-in key={currentQuestion.id}">
-        <div className="flex items-start gap-3 mb-4">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700 font-black text-sm">
+      <Card variant="elevated" padding="none" className="mb-3.5 sm:mb-6 p-4 sm:p-6 animate-scale-in">
+        <div className="flex items-start gap-2.5 mb-3 sm:mb-4">
+          <span className="flex h-7 w-7 sm:h-8 sm:w-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-blue-100 text-blue-700 font-black text-xs sm:text-sm">
             {currentIndex + 1}
           </span>
-          <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
+          <h2 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
             {currentQuestion.text}
           </h2>
         </div>
 
         {/* Optional Question Image */}
         {currentQuestion.image_url && (
-          <div className="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+          <div className="mb-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
             <img
               src={currentQuestion.image_url}
               alt=""
-              className="w-full max-h-56 object-contain"
+              className="w-full max-h-48 object-contain"
             />
           </div>
         )}

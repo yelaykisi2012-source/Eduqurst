@@ -254,13 +254,13 @@ export default function LessonPage({
   }
 
   return (
-    <div className="mx-auto max-w-3xl animate-fade-in py-2 pb-12">
+    <div className="mx-auto max-w-3xl animate-fade-in py-1 pb-32 sm:pb-12">
       {/* Top back button */}
-      <div className="mb-4">
+      <div className="mb-2">
         <Button
           variant="ghost"
           size="sm"
-          icon={<IconArrowLeft size={16} />}
+          icon={<IconArrowLeft size={14} />}
           onClick={onBack}
         >
           Darslar ro‘yxatiga qaytish
@@ -268,36 +268,36 @@ export default function LessonPage({
       </div>
 
       {/* Lesson Hero Header */}
-      <Card variant="elevated" className="mb-6 p-6 sm:p-7">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2">
-            <Badge variant="blue" size="md">
+      <Card variant="elevated" padding="none" className="mb-3.5 sm:mb-6 p-4 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
+          <div className="flex items-center gap-1.5">
+            <Badge variant="blue" size="sm">
               {lesson.subject_name}
             </Badge>
-            <span className="text-xs font-bold text-slate-400">
+            <span className="text-[11px] sm:text-xs font-bold text-slate-400">
               · {lesson.level_order}-bosqich
             </span>
           </div>
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200/80 text-xs font-bold">
-            <IconStar size={14} filled className="text-amber-500" />
-            <span>+{lesson.stars_reward} ⭐ mukofot</span>
+          <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200/80 text-[11px] sm:text-xs font-bold">
+            <IconStar size={13} filled className="text-amber-500" />
+            <span>+{lesson.stars_reward} ⭐</span>
           </div>
         </div>
 
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+        <h1 className="text-lg sm:text-2xl font-black text-slate-900 tracking-tight leading-snug">
           {lesson.title}
         </h1>
 
         {/* Video dars link if top-level */}
         {lesson.video_url && isLink(lesson.video_url) && (
-          <div className="mt-4">
+          <div className="mt-3">
             <a
               href={lesson.video_url}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center justify-center gap-2.5 w-full rounded-2xl bg-gradient-to-r from-rose-500 to-red-600 px-5 py-3.5 text-sm font-extrabold text-white shadow-sm hover:shadow-md transition-all active:scale-[0.99]"
+              className="flex items-center justify-center gap-2 w-full rounded-2xl bg-gradient-to-r from-rose-500 to-red-600 px-4 py-2.5 text-xs sm:text-sm font-extrabold text-white shadow-xs hover:shadow-md transition-all active:scale-[0.99]"
             >
-              <IconPlay size={18} />
+              <IconPlay size={16} />
               <span>Video darsni ochish</span>
             </a>
           </div>
@@ -305,23 +305,23 @@ export default function LessonPage({
       </Card>
 
       {/* Lesson Explanation / Text Content */}
-      <div className="mb-6">
-        <div className="flex items-center gap-2 px-1 mb-2">
-          <IconFileText size={18} className="text-blue-600" />
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+      <div className="mb-4 sm:mb-6">
+        <div className="flex items-center gap-1.5 px-1 mb-1.5">
+          <IconFileText size={16} className="text-blue-600" />
+          <h2 className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-500">
             Dars mavzusi va tushuntirishi
           </h2>
         </div>
 
-        <Card className="p-6 sm:p-7 leading-relaxed text-slate-800 text-[15px] sm:text-base whitespace-pre-line border border-slate-100 shadow-sm">
+        <Card padding="none" className="p-4 sm:p-6 leading-relaxed text-slate-800 text-sm sm:text-base whitespace-pre-line border border-slate-100 shadow-2xs">
           {lesson.explanation}
         </Card>
       </div>
 
       {/* Materials List */}
       {lesson.materials.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 px-1 mb-2">
+        <div className="mb-4 sm:mb-6">
+          <h3 className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-500 px-1 mb-1.5">
             Qo‘shimcha materiallar ({lesson.materials.length})
           </h3>
           <div className="space-y-2">
@@ -333,7 +333,7 @@ export default function LessonPage({
       )}
 
       {/* Action / Quiz Unlock Area */}
-      <Card variant="flat" className="p-6 sm:p-7 text-center border border-slate-200">
+      <Card variant="flat" padding="none" className="p-4 sm:p-6 text-center border border-slate-200">
         {!lesson.viewed ? (
           <div>
             <h3 className="text-base font-bold text-slate-800">

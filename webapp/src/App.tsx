@@ -12,7 +12,6 @@ import WebLogin from "./components/WebLogin";
 import { AchievementsPage, ProfilePage } from "./components/Pages";
 import Card from "./components/ui/Card";
 import Button from "./components/ui/Button";
-import Badge from "./components/ui/Badge";
 import EmptyState from "./components/ui/EmptyState";
 import {
   IconGraduationCap,
@@ -334,7 +333,7 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6 py-4 sm:py-6 safe-pb">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-3 sm:px-6 pt-1.5 pb-32 sm:py-6">
         {/* Loading / Boot states */}
         {phase === "boot" || phase === "busy" ? (
           <div className="mx-auto max-w-md py-20 text-center animate-fade-in">
@@ -381,71 +380,81 @@ export default function App() {
           />
         ) : view.kind === "home" ? (
           /* ===================== HOMEPAGE ===================== */
-          <div className="space-y-6 sm:space-y-8 animate-fade-in">
-            {/* Mobile Header (Shows only on small screens where top navbar is hidden) */}
-            <div className="flex md:hidden items-center justify-between py-1">
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                  EduQuest
-                </span>
-                <h1 className="text-xl font-black text-slate-900">
+          <div className="space-y-2.5 sm:space-y-5 animate-fade-in">
+            {/* Mobile Top Bar (Compact, fits in Telegram Mini App) */}
+            <div className="flex flex-col gap-1 md:hidden mb-0.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#3478F6] to-blue-700 text-white font-black text-xs shadow-2xs">
+                    E
+                  </div>
+                  <span className="text-sm font-black text-slate-900 tracking-tight">
+                    EduQuest
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {gradeLabel && (
+                    <button
+                      onClick={changeGrade}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/80 text-[11px] font-bold active:scale-95 transition-transform"
+                      title="Sinfni almashtirish"
+                    >
+                      <IconGraduationCap size={12} />
+                      <span>{gradeLabel}</span>
+                    </button>
+                  )}
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200/80 text-[11px] font-black shadow-2xs">
+                    <IconStar size={12} filled className="text-amber-500" />
+                    <span>{starsTotal}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Greeting */}
+              <div className="flex items-center justify-between mt-0.5">
+                <h1 className="text-sm sm:text-base font-extrabold text-slate-900 truncate max-w-[260px]">
                   Salom, {name}! 👋
                 </h1>
-              </div>
-              <div className="flex items-center gap-2">
-                {gradeLabel && (
-                  <button
-                    onClick={changeGrade}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold"
-                  >
-                    <IconGraduationCap size={14} />
-                    <span>{gradeLabel}</span>
-                  </button>
-                )}
-                <div className="flex items-center gap-1 px-3 py-1 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-black shadow-xs">
-                  <IconStar size={14} filled className="text-amber-500" />
-                  <span>{starsTotal}</span>
-                </div>
+                <span className="text-[10px] font-bold text-slate-400">
+                  {passedLessonsCount}/{totalLessonsCount} dars
+                </span>
               </div>
             </div>
 
-            {/* Hero Banner Section */}
+            {/* Compact Motivation & Progress Strip */}
             <Card
               variant="elevated"
-              className="relative overflow-hidden p-6 sm:p-8 bg-gradient-to-br from-[#3478F6] via-blue-600 to-indigo-700 text-white border-0 shadow-lg shadow-blue-500/15"
+              padding="none"
+              className="relative overflow-hidden p-3 sm:p-5 bg-gradient-to-r from-[#3478F6] via-blue-600 to-indigo-700 text-white border-0 shadow-sm"
             >
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-                <div className="space-y-2 max-w-xl">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-xs font-extrabold text-blue-100">
-                    <IconSparkles size={14} />
+              <div className="flex items-center justify-between gap-2.5 relative z-10">
+                <div className="min-w-0 flex-1">
+                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/20 backdrop-blur-md text-[9.5px] sm:text-xs font-black text-blue-100">
+                    <IconSparkles size={10} />
                     <span>O‘rganish — endi o‘yin!</span>
                   </div>
-
-                  <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                  <h2 className="text-xs sm:text-lg font-black tracking-tight text-white mt-1 leading-snug truncate">
                     Bugun qaysi yangi bilimni egallaymiz?
                   </h2>
-
-                  <p className="text-sm text-blue-100 leading-relaxed">
-                    Har bir o‘rganilgan dars va topshirilgan test uchun yulduzlarni to‘plang hamda yangi bosqichlarni oching!
-                  </p>
                 </div>
 
-                {/* Overall Stats pill */}
-                <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md p-4 rounded-3xl border border-white/20">
-                  <div className="text-center px-3 border-r border-white/20">
-                    <span className="block text-2xl font-black text-amber-300">
+                {/* Inline mini-metrics badge */}
+                <div className="shrink-0 flex items-center gap-2 bg-white/15 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/20">
+                  <div className="text-center">
+                    <span className="block text-xs sm:text-sm font-black text-amber-300 leading-none">
                       ⭐ {starsTotal}
                     </span>
-                    <span className="text-[11px] font-bold text-blue-100">
-                      Yulduzlar
+                    <span className="text-[9px] font-bold text-blue-100">
+                      Yulduz
                     </span>
                   </div>
-                  <div className="text-center px-3">
-                    <span className="block text-2xl font-black text-white">
+                  <div className="h-5 w-px bg-white/20" />
+                  <div className="text-center">
+                    <span className="block text-xs sm:text-sm font-black text-white leading-none">
                       {passedLessonsCount}/{totalLessonsCount}
                     </span>
-                    <span className="text-[11px] font-bold text-blue-100">
-                      Darslar
+                    <span className="text-[9px] font-bold text-blue-100">
+                      Yakunlandi
                     </span>
                   </div>
                 </div>
@@ -456,6 +465,7 @@ export default function App() {
             {continueItem && (
               <Card
                 variant="interactive"
+                padding="none"
                 onClick={() =>
                   navTo({
                     kind: "lesson",
@@ -463,36 +473,33 @@ export default function App() {
                     subjectId: continueItem!.subject.id,
                   })
                 }
-                className="p-5 sm:p-6 border-2 border-blue-200 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-white hover:border-blue-400"
+                className="p-2.5 sm:p-4 border border-blue-200/80 bg-gradient-to-r from-blue-50/70 via-indigo-50/30 to-white hover:border-blue-300"
               >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-md shadow-blue-500/30">
-                      <IconPlay size={24} />
+                <div className="flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-2xs">
+                      <IconPlay size={16} />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="blue" size="sm">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-extrabold text-blue-600 uppercase">
                           {continueItem.subject.name}
-                        </Badge>
-                        <span className="text-xs font-bold text-slate-400">
-                          {continueItem.lesson.level_order}-bosqich
+                        </span>
+                        <span className="text-[10px] font-semibold text-slate-400">
+                          · {continueItem.lesson.level_order}-bosqich
                         </span>
                       </div>
-                      <h3 className="text-base sm:text-lg font-black text-slate-900 mt-0.5">
+                      <h3 className="text-xs sm:text-sm font-bold text-slate-900 truncate">
                         {continueItem.lesson.title}
                       </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        O‘qishni to‘xtagan joyingizdan davom ettiring
-                      </p>
                     </div>
                   </div>
 
-                  <div className="sm:self-center">
+                  <div className="shrink-0">
                     <Button
                       variant="primary"
-                      size="md"
-                      iconRight={<IconArrowRight size={16} />}
+                      size="sm"
+                      iconRight={<IconArrowRight size={13} />}
                       onClick={(e) => {
                         e.stopPropagation();
                         navTo({
@@ -502,7 +509,7 @@ export default function App() {
                         });
                       }}
                     >
-                      Darsni boshlash
+                      Boshlash
                     </Button>
                   </div>
                 </div>
@@ -510,21 +517,21 @@ export default function App() {
             )}
 
             {/* Subjects Section */}
-            <div id="subjects-section" className="space-y-4">
-              <div className="flex items-center justify-between px-1">
+            <div id="subjects-section" className="space-y-2 sm:space-y-3">
+              <div className="flex items-center justify-between px-0.5">
                 <div>
-                  <h2 className="text-lg sm:text-xl font-black text-slate-900">
+                  <h2 className="text-sm sm:text-lg font-black text-slate-900">
                     {gradeLabel ? `${gradeLabel} fanlari` : "Fanlar"}
                   </h2>
-                  <p className="text-xs text-slate-500">
-                    O‘zingiz qiziqqan fanni tanlang va sayohatni boshlang
+                  <p className="text-[10px] sm:text-xs text-slate-400">
+                    O‘zingiz qiziqqan fanni tanlang
                   </p>
                 </div>
                 <button
                   onClick={changeGrade}
-                  className="flex items-center gap-1.5 text-xs font-extrabold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                  className="flex items-center gap-1 text-[11px] sm:text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
                 >
-                  <IconGraduationCap size={16} />
+                  <IconGraduationCap size={13} />
                   <span>Sinfni o‘zgartirish</span>
                 </button>
               </div>
@@ -537,7 +544,7 @@ export default function App() {
                   onAction={changeGrade}
                 />
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-4">
                   {subjects.map((sub) => {
                     const total = sub.lessons.length;
                     const done = sub.lessons.filter((l) => l.passed).length;
@@ -563,18 +570,18 @@ export default function App() {
               )}
             </div>
 
-            {/* Learning Inspiration Card */}
-            <Card variant="flat" className="p-5 sm:p-6 border border-slate-200">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 text-2xl">
+            {/* Learning Inspiration Card (Desktop/Tablet only to keep mobile clean) */}
+            <Card variant="flat" className="hidden sm:block p-4 sm:p-5 border border-slate-200">
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 text-xl">
                   💡
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800">
+                  <h3 className="text-xs sm:text-sm font-bold text-slate-800">
                     O‘quvchilar uchun tavsiya
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                    Har kuni muntazam 15 daqiqa dars o‘qish bilimlarni mustahkamlaydi va keyingi bosqichlarni tezroq ochishga yordam beradi.
+                  <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5 leading-relaxed">
+                    Har kuni muntazam dars o‘qish bilimlarni mustahkamlaydi va yangi bosqichlarni tezroq ochishga yordam beradi.
                   </p>
                 </div>
               </div>

@@ -25,38 +25,39 @@ export default function SubjectCard({
   return (
     <Card
       variant="interactive"
+      padding="none"
       onClick={onClick}
-      className="group relative overflow-hidden p-5 transition-all duration-200 hover:-translate-y-0.5"
+      className="group relative overflow-hidden p-3 sm:p-4 transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.99]"
     >
-      <div className="flex items-start gap-4">
+      <div className="flex items-center gap-3 sm:gap-3.5">
         {/* Emoji / Icon Container */}
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50/80 border border-blue-100/60 text-3xl shadow-xs group-hover:scale-105 transition-transform">
+        <div className="flex h-11 w-11 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50/80 border border-blue-100/70 text-2xl sm:text-3xl shadow-2xs group-hover:scale-105 transition-transform">
           <span aria-hidden>{emoji}</span>
         </div>
 
         {/* Title & Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-base sm:text-lg font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate">
+          <div className="flex items-center justify-between gap-1.5">
+            <h3 className="text-sm sm:text-base font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate">
               {title}
             </h3>
             {isCompleted && (
-              <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-600 border border-emerald-200">
-                <IconCheck size={12} />
+              <span className="shrink-0 flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] sm:text-[11px] font-bold text-emerald-600 border border-emerald-200">
+                <IconCheck size={11} />
                 <span>Bajarildi</span>
               </span>
             )}
           </div>
 
-          <p className="mt-1 text-xs font-medium text-slate-500">
+          <p className="text-[11px] sm:text-xs font-medium text-slate-400 mt-0.5 truncate">
             {hasLessons
-              ? `${passedLessons} / ${totalLessons} dars tugatilgan`
+              ? `${passedLessons} / ${totalLessons} dars yakunlangan`
               : "Darslar tayyorlanmoqda"}
           </p>
 
           {/* Progress bar */}
           {hasLessons && (
-            <div className="mt-3">
+            <div className="mt-2">
               <ProgressBar
                 value={percent}
                 size="sm"
@@ -67,8 +68,8 @@ export default function SubjectCard({
         </div>
 
         {/* Chevron arrow */}
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-slate-300 group-hover:text-blue-600 group-hover:translate-x-1 transition-all">
-          <IconChevronRight size={18} />
+        <div className="flex h-7 w-7 sm:h-8 sm:w-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl text-slate-300 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all">
+          <IconChevronRight size={16} />
         </div>
       </div>
     </Card>

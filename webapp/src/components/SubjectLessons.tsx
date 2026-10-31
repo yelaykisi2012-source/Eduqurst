@@ -29,13 +29,13 @@ export default function SubjectLessons({
   const percent = total > 0 ? Math.round((passedCount / total) * 100) : 0;
 
   return (
-    <div className="mx-auto max-w-3xl animate-fade-in py-2">
+    <div className="mx-auto max-w-3xl animate-fade-in py-1 pb-32 sm:pb-12">
       {/* Back button */}
-      <div className="mb-4">
+      <div className="mb-2">
         <Button
           variant="ghost"
           size="sm"
-          icon={<IconArrowLeft size={16} />}
+          icon={<IconArrowLeft size={14} />}
           onClick={onBack}
         >
           Bosh sahifaga qaytish
@@ -43,18 +43,18 @@ export default function SubjectLessons({
       </div>
 
       {/* Subject Header Banner */}
-      <Card variant="elevated" className="mb-6 p-6 sm:p-7 bg-white border border-slate-100">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-100/70 border border-blue-100 text-4xl shadow-xs">
+      <Card variant="elevated" padding="none" className="mb-3.5 sm:mb-6 p-3.5 sm:p-6 bg-white border border-slate-100">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 sm:h-14 sm:w-14 items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-100/70 border border-blue-100 text-2xl sm:text-4xl shadow-2xs">
               <span aria-hidden>{subject.emoji}</span>
             </div>
             <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-blue-600">
                 O‘quv fani
               </span>
-              <h1 className="text-2xl font-black text-slate-900">{subject.name}</h1>
-              <p className="text-xs font-semibold text-slate-500 mt-0.5">
+              <h1 className="text-lg sm:text-2xl font-black text-slate-900 leading-tight">{subject.name}</h1>
+              <p className="text-[11px] sm:text-xs font-medium text-slate-400 mt-0.5">
                 {total > 0
                   ? `${passedCount} / ${total} bosqich yakunlangan`
                   : "Ushbu fanda darslar tayyorlanmoqda"}
@@ -63,8 +63,8 @@ export default function SubjectLessons({
           </div>
 
           {total > 0 && (
-            <div className="w-full sm:w-48 bg-slate-50 p-3 rounded-2xl border border-slate-100">
-              <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1.5">
+            <div className="w-full sm:w-44 bg-slate-50 p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-slate-100">
+              <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold text-slate-700 mb-1">
                 <span>Progress</span>
                 <span className="text-blue-600">{percent}%</span>
               </div>
@@ -84,17 +84,17 @@ export default function SubjectLessons({
         />
       ) : (
         /* Lessons Ladder */
-        <div className="space-y-3">
+        <div className="space-y-2.5 sm:space-y-3">
           <div className="flex items-center justify-between px-1">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <h2 className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">
               Darslar ketma-ketligi
             </h2>
-            <span className="text-xs font-medium text-slate-400">
+            <span className="text-[10px] sm:text-xs font-medium text-slate-400">
               Bosqichma-bosqich o‘rganing
             </span>
           </div>
 
-          <div className="relative space-y-3">
+          <div className="relative space-y-2 sm:space-y-2.5">
             {subject.lessons.map((lesson) => {
               const isLocked = !lesson.unlocked;
               const isPassed = lesson.passed;
@@ -108,43 +108,43 @@ export default function SubjectLessons({
                     onClick={() => {
                       if (!isLocked) onOpenLesson(lesson.id);
                     }}
-                    className={`flex items-center gap-4 p-4 sm:p-5 rounded-3xl border transition-all duration-200 ${
+                    className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl sm:rounded-2xl border transition-all duration-150 ${
                       isLocked
-                        ? "bg-slate-50/70 border-slate-200/60 opacity-70 cursor-not-allowed"
+                        ? "bg-slate-50/70 border-slate-200/60 opacity-60 cursor-not-allowed"
                         : isPassed
-                          ? "bg-white border-emerald-100 hover:border-emerald-300 shadow-xs hover:shadow-sm cursor-pointer"
+                          ? "bg-white border-emerald-100 hover:border-emerald-300 shadow-2xs cursor-pointer"
                           : isCurrent
-                            ? "bg-white border-blue-300 shadow-md shadow-blue-500/5 ring-2 ring-blue-500/10 cursor-pointer"
-                            : "bg-white border-slate-200/80 hover:border-blue-200 shadow-xs cursor-pointer"
+                            ? "bg-white border-blue-400 shadow-sm ring-2 ring-blue-500/10 cursor-pointer"
+                            : "bg-white border-slate-200/80 hover:border-blue-200 shadow-2xs cursor-pointer"
                     }`}
                   >
                     {/* Status Badge Icon */}
                     <div
-                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl font-bold transition-all ${
+                      className={`flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl font-bold transition-all ${
                         isPassed
                           ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
                           : isViewed
                             ? "bg-blue-50 text-blue-600 border border-blue-200"
                             : isCurrent
-                              ? "bg-[#3478F6] text-white shadow-sm shadow-blue-500/30"
+                              ? "bg-[#3478F6] text-white shadow-xs"
                               : "bg-slate-100 text-slate-400 border border-slate-200"
                       }`}
                     >
                       {isPassed ? (
-                        <IconCheck size={20} />
+                        <IconCheck size={18} />
                       ) : isViewed ? (
-                        <IconBook size={20} />
+                        <IconBook size={18} />
                       ) : isCurrent ? (
-                        <IconPlay size={18} />
+                        <IconPlay size={16} />
                       ) : (
-                        <IconLock size={18} />
+                        <IconLock size={16} />
                       )}
                     </div>
 
                     {/* Lesson Content */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-extrabold text-blue-600">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] sm:text-xs font-extrabold text-blue-600">
                           {lesson.level_order}-bosqich
                         </span>
                         {isPassed && (
@@ -164,18 +164,18 @@ export default function SubjectLessons({
                         )}
                       </div>
 
-                      <h3 className="text-sm sm:text-base font-bold text-slate-900 mt-0.5 truncate">
+                      <h3 className="text-xs sm:text-base font-bold text-slate-900 mt-0.5 truncate">
                         {lesson.title}
                       </h3>
 
-                      <p className="text-xs text-slate-400 mt-0.5">
+                      <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate">
                         {isPassed
-                          ? "Dars o‘qildi va test muvaffaqiyatli topshirildi ⭐"
+                          ? "Dars o‘qildi va test topshirildi ⭐"
                           : isViewed
                             ? "Nazariy qism o‘qildi. Testni topshiring"
                             : isCurrent
                               ? "Dars materiallarini o‘rganishni boshlang"
-                              : "Avvalgi bosqich testini topshiring"}
+                              : "Avvalgi bosqichni tugating"}
                       </p>
                     </div>
 
@@ -183,11 +183,11 @@ export default function SubjectLessons({
                     <div className="shrink-0">
                       {isLocked ? (
                         <div className="text-slate-300">
-                          <IconLock size={18} />
+                          <IconLock size={16} />
                         </div>
                       ) : (
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-50 text-slate-500 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
-                          <IconChevronRight size={18} />
+                        <div className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-slate-50 text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
+                          <IconChevronRight size={16} />
                         </div>
                       )}
                     </div>
