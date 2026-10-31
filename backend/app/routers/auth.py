@@ -22,6 +22,13 @@ def telegram_login(body: TelegramLoginRequest, db: Session = Depends(get_db)) ->
     except TelegramAuthError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc))
 
+    if not settings.JWT_SECRET:
+        # jwt.encode crashes on an empty key; say so clearly instead of a 500.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Server JWT_SECRET sozlanmagan — administratorga xabar bering.",
+        )
+
     telegram_id = int(tg_user["id"])
     user = db.scalar(select(User).where(User.telegram_id == telegram_id))
     if user is None:
