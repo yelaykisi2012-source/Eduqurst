@@ -85,6 +85,15 @@ async def _offline(target: Message) -> None:
 
 
 async def _business(target: Message, e: backend_client.BackendBusiness) -> None:
+    if e.code == "pupil_not_found":
+        # The PupilGuard registers every user before handlers run, so this
+        # should never fire. If it does, the log tells us which backend the
+        # bot actually talked to (host only — never the token).
+        logger.warning(
+            "pupil_not_found: chat_id=%s api=%s",
+            target.chat.id,
+            config.API_URL.split("//")[-1].split("/")[0] or "?",
+        )
     await target.answer(f"⚠️ {esc(e.message)}", reply_markup=menu_only_keyboard())
 
 
@@ -104,8 +113,9 @@ async def cb_menu(cb: CallbackQuery) -> None:
 
 # ------------------------------------------------------------------ grade onboarding
 
-async def show_grade_picker(target: Message, prefix: str = "gr") -> None:
-    tg_id = target.from_user.id
+async def show_grade_picker(target: Message, tg_id: int, prefix: str = "gr") -> None:
+    # tg_id must be the PUPIL's id, passed explicitly: for inline-button
+    # callbacks `target` is the bot's own message (from_user == the bot).
     try:
         grades = await backend_client.grades(tg_id)
     except backend_client.BackendOffline:
@@ -133,24 +143,25 @@ async def cb_pick_grade(cb: CallbackQuery, state: FSMContext) -> None:
         f"🎉 Ajoyib! Siz endi <b>{esc(profile['grade_name'])}</b> o‘quchisisiz.\n"
         "Keling, darslarni ochamiz!",
     )
-    await show_subjects(cb.message)
+    await show_subjects(cb.message, cb.from_user.id)
 
 
 # ------------------------------------------------------------------ subjects / ladder
 
 @router.message(Command("lessons"))
 async def cmd_lessons(message: Message) -> None:
-    await show_subjects(message)
+    await show_subjects(message, message.from_user.id)
 
 
 @router.callback_query(F.data == "nav:subjects")
 async def cb_subjects(cb: CallbackQuery) -> None:
     await cb.answer()  # stop the spinner immediately
-    await show_subjects(cb.message)
+    # cb.from_user is the pupil who pressed the button; cb.message.from_user
+    # is the BOT (it authored the keyboard message) — never query with that.
+    await show_subjects(cb.message, cb.from_user.id)
 
 
-async def show_subjects(target: Message) -> None:
-    tg_id = target.from_user.id
+async def show_subjects(target: Message, tg_id: int) -> None:
     try:
         subjects = await backend_client.subjects(tg_id)
     except backend_client.BackendOffline:
@@ -159,7 +170,7 @@ async def show_subjects(target: Message) -> None:
     except backend_client.BackendBusiness as e:
         if e.code == "grade_not_selected":
             await target.answer("📚 Darslardan oldin sinfinizni tanlang!")
-            await show_grade_picker(target)
+            await show_grade_picker(target, tg_id)
         else:
             await _business(target, e)
         return
@@ -188,7 +199,7 @@ async def cb_subject(cb: CallbackQuery) -> None:
     subject = next((s for s in subjects if s["id"] == subject_id), None)
     if subject is None:
         await cb.message.answer("Bu fan topilmadi (sinf o‘zgargan bo‘lishi mumkin).")
-        await show_subjects(cb.message)
+        await show_subjects(cb.message, cb.from_user.id)
         return
     await cb.message.answer(
         f"{subject['emoji']} <b>{esc(subject['name'])}</b> — bosqichlar:\n\n"
@@ -329,11 +340,13 @@ def _answers_payload(answers: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"question_id": int(qid), **val} for qid, val in answers.items()]
 
 
-async def _finish_quiz(target: Message, state: FSMContext, lesson_id: int, answers: dict) -> None:
+async def _finish_quiz(
+    target: Message, state: FSMContext, lesson_id: int, answers: dict, tg_id: int
+) -> None:
     await state.clear()
     try:
         result = await backend_client.submit_quiz(
-            target.from_user.id, lesson_id, uuid.uuid4().hex, _answers_payload(answers)
+            tg_id, lesson_id, uuid.uuid4().hex, _answers_payload(answers)
         )
     except backend_client.BackendOffline:
         await _offline(target)
@@ -387,7 +400,8 @@ async def cb_answer(cb: CallbackQuery, state: FSMContext) -> None:
     answers[str(q["id"])] = {"option_id": option["id"]}
     nxt = data["index"] + 1
     if nxt >= len(questions):
-        await _finish_quiz(cb.message, state, data["lesson_id"], answers)
+        # cb.message is the bot's message — submit for the pupil who pressed.
+        await _finish_quiz(cb.message, state, data["lesson_id"], answers, cb.from_user.id)
     else:
         await _render_question(
             cb.message, questions, data["lesson_id"], nxt, answers,
@@ -424,7 +438,7 @@ async def msg_text_answer(message: Message, state: FSMContext) -> None:
     answers[str(q["id"])] = {"text": message.text.strip()[:255]}
     nxt = index + 1
     if nxt >= len(questions):
-        await _finish_quiz(message, state, data["lesson_id"], answers)
+        await _finish_quiz(message, state, data["lesson_id"], answers, message.from_user.id)
     else:
         await _render_question(
             message, questions, data["lesson_id"], nxt, answers,

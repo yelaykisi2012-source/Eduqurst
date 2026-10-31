@@ -24,9 +24,11 @@ def esc(value: object) -> str:
     return html.escape(str(value), quote=False)
 
 
-async def _load(target: Message) -> dict | None:
+async def _load(target: Message, tg_id: int) -> dict | None:
+    # tg_id is the pupil's id; when `target` is the bot's own message (inline
+    # button press) target.from_user is the BOT and must not be queried.
     try:
-        return await backend_client.progress(target.from_user.id)
+        return await backend_client.progress(tg_id)
     except backend_client.BackendOffline:
         await target.answer(
             "🔌 Server hozir javob bermayapti — birozdan so‘ng qayta urinib ko‘ring.",
@@ -47,8 +49,8 @@ def _bar(done: int, total: int) -> str:
     return "█" * filled + "░" * (10 - filled)
 
 
-async def show_profile(target: Message) -> None:
-    prog = await _load(target)
+async def show_profile(target: Message, tg_id: int) -> None:
+    prog = await _load(target, tg_id)
     if prog is None:
         return
     lines = [
@@ -70,8 +72,8 @@ async def show_profile(target: Message) -> None:
     await target.answer("\n".join(lines), reply_markup=menu_only_keyboard())
 
 
-async def show_achievements(target: Message) -> None:
-    prog = await _load(target)
+async def show_achievements(target: Message, tg_id: int) -> None:
+    prog = await _load(target, tg_id)
     if prog is None:
         return
     lines = ["🏆 <b>Yutuqlar</b>\n"]
@@ -86,20 +88,20 @@ async def show_achievements(target: Message) -> None:
 @router.callback_query(F.data == "nav:profile")
 async def cb_profile(cb: CallbackQuery) -> None:
     await cb.answer()  # stop the spinner immediately
-    await show_profile(cb.message)
+    await show_profile(cb.message, cb.from_user.id)
 
 
 @router.callback_query(F.data == "nav:ach")
 async def cb_achievements(cb: CallbackQuery) -> None:
     await cb.answer()  # stop the spinner immediately
-    await show_achievements(cb.message)
+    await show_achievements(cb.message, cb.from_user.id)
 
 
 @router.message(Command("profile"))
 async def cmd_profile(message: Message) -> None:
-    await show_profile(message)
+    await show_profile(message, message.from_user.id)
 
 
 @router.message(Command("medallar"))
 async def cmd_medals(message: Message) -> None:
-    await show_achievements(message)
+    await show_achievements(message, message.from_user.id)

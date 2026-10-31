@@ -9,6 +9,7 @@ Flow:
 """
 import asyncio
 import logging
+import socket
 import sys
 
 from aiogram import Bot, Dispatcher
@@ -22,10 +23,33 @@ from handlers import admin as admin_handlers
 from handlers import learn as learn_handlers
 from handlers import profile as profile_handlers
 from handlers import start as start_handlers
+from pupil_guard import PupilGuard
 
 # Render free tier sleeps after ~15 min without traffic. A light ping every
 # 10 min keeps the API warm so pupils never stare at a cold start.
 KEEPALIVE_SECONDS = 600
+
+# One bot copy per machine. Two copies of the same token fight over
+# Telegram's getUpdates: updates land on one or the other at random, so /start
+# may be answered by copy A while a button is answered by copy B — producing
+# confusing errors like "Avval /start bosing." for a fully registered pupil.
+INSTANCE_PORT = 49221
+
+
+def acquire_single_instance() -> socket.socket:
+    """Bind a localhost port as a lock; the OS frees it when the bot exits."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", INSTANCE_PORT))
+        sock.listen(1)
+    except OSError:
+        sock.close()
+        print(
+            "⛔ EduQuest bot allaqachon ishlab turibdi.\n"
+            "Ikkinchi nusxani ishga tushirmang — eski terminalda Ctrl+C bosing."
+        )
+        sys.exit(0)
+    return sock
 
 
 def setup_logging() -> None:
@@ -49,6 +73,8 @@ async def main() -> None:
     setup_logging()
     logger = logging.getLogger("eduquest")
 
+    instance_lock = acquire_single_instance()  # kept alive until polling stops
+
     if not config.BOT_TOKEN:
         logger.error(
             "BOT_TOKEN topilmadi! bot/.env faylga BOT_TOKEN qiymatini kiriting "
@@ -71,6 +97,12 @@ async def main() -> None:
     dp.include_router(profile_handlers.router)
     dp.include_router(start_handlers.router)
 
+    # Every message/button first ensures the pupil exists in the backend, so a
+    # missed or stale /start can never break navigation ("Avval /start bosing").
+    pupil_guard = PupilGuard()
+    dp.message.middleware(pupil_guard)
+    dp.callback_query.middleware(pupil_guard)
+
     # Show the command list in Telegram's menu (the "/" button).
     await bot.set_my_commands(
         [
@@ -92,6 +124,7 @@ async def main() -> None:
         await dp.start_polling(bot)
     finally:
         keepalive.cancel()
+        instance_lock.close()
 
 
 if __name__ == "__main__":

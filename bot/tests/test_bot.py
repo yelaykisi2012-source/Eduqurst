@@ -21,6 +21,8 @@ import os
 import sys
 import unittest
 from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 # Config is imported by the handlers; keep test values local (never real ones).
 os.environ.setdefault("BOT_TOKEN", "012345:TEST_TOKEN_NOT_REAL")
@@ -33,10 +35,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aiogram import Bot  # noqa: E402
 from aiogram.types import CallbackQuery, Chat, Document, Message, User, Video  # noqa: E402
 
+import backend_client  # noqa: E402
 from handlers import admin as admin_handlers  # noqa: E402
 from handlers import learn as learn_handlers  # noqa: E402
 from handlers import profile as profile_handlers  # noqa: E402
 from keyboards import inline as kb  # noqa: E402
+from pupil_guard import PupilGuard  # noqa: E402
 
 ROUTERS = [
     admin_handlers.router,
@@ -337,6 +341,157 @@ class MessageHelperTests(unittest.TestCase):
         self.assertTrue(learn_handlers.is_url("HTTP://a.uz"))
         self.assertFalse(learn_handlers.is_url("yozma matn"))
         self.assertFalse(learn_handlers.is_url(None))
+
+
+class PupilGuardTests(unittest.TestCase):
+    """Buttons must work even if /start was missed, lost or handled elsewhere."""
+
+    def _user(self, uid: int = 999000111, is_bot: bool = False) -> User:
+        return User(id=uid, is_bot=is_bot, first_name="Admin")
+
+    def _run(self, guard: PupilGuard, users: list[User]) -> tuple[list[int], object]:
+        seen: list[int] = []
+
+        async def handler(event, data):
+            seen.append(data["event_from_user"].id)
+            return "ok"
+
+        async def run():
+            for u in users:
+                result = await guard(handler, object(), {"event_from_user": u})
+                self.assertEqual(result, "ok")
+            return True
+
+        asyncio.run(run())
+        return seen, None
+
+    def test_registers_once_per_user(self):
+        from unittest.mock import AsyncMock, patch
+
+        guard = PupilGuard()
+        with patch("backend_client.upsert_pupil", new=AsyncMock(return_value={})) as up:
+            self._run(guard, [self._user(), self._user()])
+        self.assertEqual(up.await_count, 1)
+        self.assertEqual(up.await_args.args[0], 999000111)
+
+    def test_backend_offline_never_blocks_the_handler(self):
+        from unittest.mock import AsyncMock, patch
+
+        import backend_client
+
+        guard = PupilGuard()
+        failing = AsyncMock(side_effect=backend_client.BackendOffline("down"))
+        with patch("backend_client.upsert_pupil", new=failing):
+            seen, _ = self._run(guard, [self._user()])
+        self.assertEqual(seen, [999000111])
+
+    def test_other_bots_are_ignored(self):
+        from unittest.mock import AsyncMock, patch
+
+        guard = PupilGuard()
+        with patch("backend_client.upsert_pupil", new=AsyncMock(return_value={})) as up:
+            seen, _ = self._run(guard, [self._user(is_bot=True)])
+        self.assertEqual(seen, [999000111])
+        self.assertEqual(up.await_count, 0)
+
+
+BOT_ACCOUNT_ID = 9025391756  # @Edi_Quest_bot — author of every inline keyboard
+
+PROGRESS = {
+    "first_name": "A S A D B E K",
+    "grade_id": 1,
+    "grade_name": "1-sinf",
+    "stars_total": 16,
+    "lessons_viewed": 1,
+    "lessons_passed": 1,
+    "subjects": [
+        {"subject_name": "Matematika", "emoji": "📐", "total_lessons": 4, "passed_lessons": 1},
+    ],
+    "achievements": [],
+}
+
+
+class CallbackPupilIdTests(unittest.TestCase):
+    """LIVE BUG (2026-10-31): every inline button answered "Avval /start bosing."
+
+    Root cause: screens called the backend with `cb.message.from_user.id`.
+    For a callback that message was written by the BOT, so the bot's own id
+    (9025391756) got queried and the backend correctly answered 404
+    pupil_not_found. The pupil's id is always `cb.from_user.id`.
+    """
+
+    PUPIL_ID = 999000111
+
+    def _bot_message(self):
+        target = SimpleNamespace(
+            from_user=User(id=BOT_ACCOUNT_ID, is_bot=True, first_name="EduQuest"),
+            chat=Chat(id=self.PUPIL_ID, type="private"),
+            answers=[],
+        )
+
+        async def answer(text, reply_markup=None, **kwargs):
+            target.answers.append(text)
+
+        target.answer = answer
+        return target
+
+    def _callback(self, data: str):
+        return SimpleNamespace(
+            data=data,
+            from_user=User(id=self.PUPIL_ID, is_bot=False, first_name="Pupil"),
+            message=self._bot_message(),
+            answer=AsyncMock(),
+        )
+
+    def test_subjects_button_queries_the_pupil(self):
+        cb = self._callback("nav:subjects")
+        with patch("backend_client.subjects", new=AsyncMock(return_value=[])) as mocked:
+            asyncio.run(learn_handlers.cb_subjects(cb))
+        mocked.assert_awaited_once_with(self.PUPIL_ID)
+        self.assertTrue(cb.message.answers, "the screen must answer")
+
+    def test_subjects_screen_lists_content(self):
+        cb = self._callback("nav:subjects")
+        with patch("backend_client.subjects", new=AsyncMock(return_value=SUBJECTS)):
+            asyncio.run(learn_handlers.cb_subjects(cb))
+        self.assertTrue(cb.message.answers)
+        self.assertIn("Fanlaringiz", cb.message.answers[-1])
+
+    def test_grade_onboarding_keeps_the_pupil_id(self):
+        cb = self._callback("nav:subjects")
+        error = backend_client.BackendBusiness(409, "grade_not_selected", "x")
+        with patch("backend_client.subjects", new=AsyncMock(side_effect=error)), \
+                patch.object(learn_handlers, "show_grade_picker", new=AsyncMock()) as picker:
+            asyncio.run(learn_handlers.cb_subjects(cb))
+        picker.assert_awaited_once_with(cb.message, self.PUPIL_ID)
+
+    def test_grade_picker_queries_the_pupil(self):
+        target = self._bot_message()
+        with patch("backend_client.grades", new=AsyncMock(return_value=GRADES)) as mocked:
+            asyncio.run(learn_handlers.show_grade_picker(target, self.PUPIL_ID))
+        mocked.assert_awaited_once_with(self.PUPIL_ID)
+
+    def test_profile_button_queries_the_pupil(self):
+        cb = self._callback("nav:profile")
+        with patch("backend_client.progress", new=AsyncMock(return_value=PROGRESS)) as mocked:
+            asyncio.run(profile_handlers.cb_profile(cb))
+        mocked.assert_awaited_once_with(self.PUPIL_ID)
+        self.assertTrue(cb.message.answers)
+        self.assertIn("A S A D B E K", cb.message.answers[-1])
+
+    def test_achievements_button_queries_the_pupil(self):
+        cb = self._callback("nav:ach")
+        achievements = [{
+            "code": "first_lesson", "icon": "🥇", "title": "Birinchi dars",
+            "description": "Birinchi darsni o‘qing", "earned": True,
+        }]
+        with patch(
+            "backend_client.progress",
+            new=AsyncMock(return_value={**PROGRESS, "achievements": achievements}),
+        ) as mocked:
+            asyncio.run(profile_handlers.cb_achievements(cb))
+        mocked.assert_awaited_once_with(self.PUPIL_ID)
+        self.assertTrue(cb.message.answers)
 
 
 if __name__ == "__main__":

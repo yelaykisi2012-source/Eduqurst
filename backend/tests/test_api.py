@@ -1122,3 +1122,104 @@ def test_internal_material_endpoint(client: TestClient):
     assert client.get(
         f"/api/internal/materials/{pdf['id']}", params={"telegram_id": 777602}, headers=_h()
     ).status_code == 403
+
+
+# ---------- bot ↔ site: one database, same lessons and the same progress ----------
+def test_bot_created_content_and_progress_are_shared_with_site(client: TestClient):
+    """The bot and the Mini App are two windows onto ONE backend/DB.
+
+    Content added through the bot's admin flow must immediately appear on the
+    site with the same level order and materials, and a pupil's progress must
+    be identical in both places — this is exactly what the product promises.
+    """
+    tg = 999000111  # allowlisted admin (conftest); also plays the pupil here
+    client.post("/api/internal/pupils", json={"telegram_id": tg, "first_name": "Admin"}, headers=_h())
+    client.post("/api/internal/pupil/grade", json={"telegram_id": tg, "grade_id": 1}, headers=_h())
+
+    # --- created entirely through the bot's admin flow ---
+    subj = client.post(
+        "/api/internal/admin/subjects",
+        json={"telegram_id": tg, "data": {"grade_id": 1, "name": "Robotika", "emoji": "🤖"}},
+        headers=_h(),
+    )
+    assert subj.status_code == 201, subj.text
+    subject_id = subj.json()["id"]
+
+    les = client.post(
+        f"/api/internal/admin/subjects/{subject_id}/lessons",
+        json={"telegram_id": tg, "data": {
+            "title": "Robotlar olami",
+            "explanation": "Robotlar — dasturlashtiriladigan mashinalar.",
+            "stars_reward": 5, "pass_threshold_percent": 60,
+        }},
+        headers=_h(),
+    )
+    assert les.status_code == 201, les.text
+    lesson_id = les.json()["id"]
+    assert les.json()["level_order"] == 1
+
+    mat = client.post(
+        f"/api/internal/admin/lessons/{lesson_id}/materials",
+        json={"telegram_id": tg, "data": {
+            "kind": "text", "title": "Qo'shimcha izoh", "content": "Robotlar tarixi.",
+        }},
+        headers=_h(),
+    )
+    assert mat.status_code == 201, mat.text
+
+    q = client.post(
+        f"/api/internal/admin/lessons/{lesson_id}/questions",
+        json={"telegram_id": tg, "data": {
+            "text": "Robot nima?",
+            "kind": "single",
+            "options": [
+                {"text": "Mashina", "is_correct": True},
+                {"text": "O'simlik", "is_correct": False},
+            ],
+        }},
+        headers=_h(),
+    )
+    assert q.status_code == 201, q.text
+
+    # --- the same pupil now opens the SITE (JWT path) ---
+    site = login_as(client, {"id": tg, "first_name": "Admin"})
+    subjects = client.get("/api/subjects", headers=site).json()
+    robo = next(s for s in subjects if s["id"] == subject_id)
+    assert robo["name"] == "Robotika"
+    assert [(l["id"], l["level_order"], l["unlocked"]) for l in robo["lessons"]] == [
+        (lesson_id, 1, True)
+    ]
+    detail = client.get(f"/api/lessons/{lesson_id}", headers=site).json()
+    assert detail["title"] == "Robotlar olami"
+    assert any(m["title"] == "Qo'shimcha izoh" for m in detail["materials"])
+
+    # Progress made IN THE BOT is visible on the site...
+    viewed = client.post(
+        f"/api/internal/pupil/lesson/{lesson_id}/viewed", params={"telegram_id": tg}, headers=_h()
+    )
+    assert viewed.status_code == 200 and viewed.json()["stars_granted"] is True
+    subjects = client.get("/api/subjects", headers=site).json()
+    robo = next(s for s in subjects if s["id"] == subject_id)
+    assert robo["lessons"][0]["viewed"] is True
+
+    # ...and progress made ON THE SITE is visible in the bot.
+    quiz = client.get(f"/api/lessons/{lesson_id}/quiz", headers=site).json()
+    res = client.post(
+        f"/api/lessons/{lesson_id}/quiz/submit",
+        json={
+            "idempotency_key": str(uuid.uuid4()),
+            "answers": [{"question_id": quiz["questions"][0]["id"],
+                         "option_id": quiz["questions"][0]["options"][0]["id"]}],
+        },
+        headers=site,
+    ).json()
+    assert res["passed"] is True
+    bot_subjects = client.get(
+        "/api/internal/pupil/subjects", params={"telegram_id": tg}, headers=_h()
+    ).json()
+    bot_robo = next(s for s in bot_subjects if s["id"] == subject_id)
+    assert bot_robo["lessons"][0]["passed"] is True
+    prog = client.get(
+        "/api/internal/pupil/progress", params={"telegram_id": tg}, headers=_h()
+    ).json()
+    assert prog["lessons_passed"] >= 1
