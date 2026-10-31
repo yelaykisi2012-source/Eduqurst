@@ -813,9 +813,9 @@ function QuestionForm({
 /* ---------- material form + lists ---------- */
 
 const MATERIAL_KINDS = [
-  { kind: "video", label: "▶️ Video" },
-  { kind: "pdf", label: "📄 PDF" },
-  { kind: "live", label: "🔴 Jonli dars" },
+  { kind: "live", label: "🔴 Jonli dars (Zoom / Meet)" },
+  { kind: "pdf", label: "📄 PDF fayl" },
+  { kind: "video", label: "▶️ Video (MP4)" },
   { kind: "text", label: "📝 Yozma matn" },
 ] as const;
 
@@ -839,27 +839,36 @@ function MaterialForm({
   lessonId: number;
   onDone: () => Promise<void> | void;
 }) {
-  const [kind, setKind] = useState<string>("video");
+  const [kind, setKind] = useState<string>("live");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const needsUrl = kind !== "text";
+  const isLive = kind === "live";
+  const isText = kind === "text";
+  const isFile = kind === "pdf" || kind === "video";
+
   const ready =
     title.trim().length >= 2 &&
-    content.trim().length >= 1 &&
-    (!needsUrl || isUrl(content));
+    ((isLive && isUrl(content)) ||
+      (isText && content.trim().length >= 1) ||
+      (isFile && file !== null));
 
   const submit = async () => {
     setBusy(true);
     setErr("");
     try {
-      await api.adminCreateMaterial(token, lessonId, {
-        kind,
-        title: title.trim(),
-        content: content.trim(),
-      });
+      if (isFile && file) {
+        await api.adminUploadMaterial(token, lessonId, file, kind as "video" | "pdf", title.trim());
+      } else {
+        await api.adminCreateMaterial(token, lessonId, {
+          kind,
+          title: title.trim(),
+          content: content.trim(),
+        });
+      }
       await onDone();
     } catch (e) {
       setErr(errText(e));
@@ -870,16 +879,21 @@ function MaterialForm({
 
   return (
     <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
-      <label className={label}>Material formati</label>
+      <label className={label}>Material turi</label>
       <div className="grid grid-cols-2 gap-2">
         {MATERIAL_KINDS.map((k) => (
           <button
             key={k.kind}
-            onClick={() => setKind(k.kind)}
+            type="button"
+            onClick={() => {
+              setKind(k.kind);
+              setFile(null);
+              setContent("");
+            }}
             className={
               kind === k.kind
-                ? "rounded-lg bg-emerald-600 px-2 py-1.5 text-xs font-bold text-white"
-                : "rounded-lg border border-emerald-200 bg-white px-2 py-1.5 text-xs font-semibold text-emerald-700"
+                ? "rounded-lg bg-emerald-600 px-2.5 py-2 text-xs font-bold text-white shadow-xs"
+                : "rounded-lg border border-emerald-200 bg-white px-2.5 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
             }
           >
             {k.label}
@@ -887,41 +901,107 @@ function MaterialForm({
         ))}
       </div>
 
-      <p className="mt-2 rounded-lg bg-white/70 px-2 py-1.5 text-[11px] leading-relaxed text-emerald-800">
-        📎 PDF yoki video <b>faylni</b> Telegram botdagi «🎞 Material qo‘shish» orqali yuboring —
-        bot faylni o‘zi saqlaydi. Bu forma esa havola (link) qo‘shadi; jonli dars faqat havola bilan.
-      </p>
-
       <label className={label}>Sarlavha</label>
       <input
         className={input}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         maxLength={160}
-        placeholder={kind === "live" ? "Masalan: Jonli dars — 5-noyabr" : "Masalan: Sonlarni qo‘shish"}
-      />
-
-      <label className={label}>{needsUrl ? "Havola (https:// …)" : "Yozma matn"}</label>
-      <textarea
-        className={`${input} min-h-20`}
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        maxLength={5000}
         placeholder={
-          needsUrl
-            ? "https://youtu.be/… yoki https://…/hujjat.pdf"
-            : "O‘quvchi dars ichida o‘qiydigan qisqa tushuntirish"
+          isLive
+            ? "Masalan: Jonli dars — Zoom (5-noyabr)"
+            : kind === "pdf"
+              ? "Masalan: 8-sinf Darslik yoki qo‘llanma"
+              : kind === "video"
+                ? "Masalan: 1-mavzu video tushuntirishi"
+                : "Masalan: Mavzu qoidalari va teoremalar"
         }
       />
-      {needsUrl && content.trim() !== "" && !isUrl(content) && (
-        <p className="mt-1 text-xs font-semibold text-rose-600">
-          Havola http:// yoki https:// bilan boshlanishi kerak.
-        </p>
+
+      {/* 1) FAqat ZOOM / JONLI DARS: havola so'raydi */}
+      {isLive && (
+        <>
+          <label className={label}>Zoom yoki Google Meet havolasi (https://…)</label>
+          <input
+            className={input}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="https://zoom.us/j/... yoki https://meet.google.com/..."
+          />
+          {content.trim() !== "" && !isUrl(content) && (
+            <p className="mt-1 text-xs font-semibold text-rose-600">
+              Havola https:// yoki http:// bilan boshlanishi kerak.
+            </p>
+          )}
+          <p className="mt-1.5 text-[11px] text-emerald-700">
+            💡 Faqat jonli darslar Zoom/Google Meet orqali o‘tilgani sababli havola talab qiladi.
+          </p>
+        </>
+      )}
+
+      {/* 2) PDF FAYL: fayl yuklash */}
+      {kind === "pdf" && (
+        <>
+          <label className={label}>PDF faylni tanlang (.pdf)</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) setFile(f);
+              }}
+              className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-xl file:border-0 file:bg-emerald-600 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white hover:file:bg-emerald-700 cursor-pointer"
+            />
+          </div>
+          {file && (
+            <p className="mt-1.5 text-xs font-bold text-emerald-800">
+              📎 Tanlandi: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+            </p>
+          )}
+        </>
+      )}
+
+      {/* 3) VIDEO FAYL: MP4 video fayl yuklash */}
+      {kind === "video" && (
+        <>
+          <label className={label}>Video faylni tanlang (.mp4, .mov, .webm)</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="file"
+              accept="video/mp4,video/quicktime,video/webm,video/*"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) setFile(f);
+              }}
+              className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-xl file:border-0 file:bg-emerald-600 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white hover:file:bg-emerald-700 cursor-pointer"
+            />
+          </div>
+          {file && (
+            <p className="mt-1.5 text-xs font-bold text-emerald-800">
+              🎬 Tanlandi: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+            </p>
+          )}
+        </>
+      )}
+
+      {/* 4) YOZMA MATN: textarea */}
+      {isText && (
+        <>
+          <label className={label}>Yozma konspekt matni</label>
+          <textarea
+            className={`${input} min-h-24`}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            maxLength={5000}
+            placeholder="O‘quvchi dars ichida o‘qiydigan qisqa tushuntirish, formulalar yoki qoidalar..."
+          />
+        </>
       )}
 
       {err && <p className="mt-2 text-xs font-semibold text-rose-600">{err}</p>}
       <button onClick={submit} disabled={busy || !ready} className={btnPrimary}>
-        {busy ? "Saqlanmoqda…" : "Material saqlash"}
+        {busy ? "Yuklanmoqda va saqlanmoqda…" : isFile ? "Faylni yuklash va saqlash" : "Material saqlash"}
       </button>
     </div>
   );

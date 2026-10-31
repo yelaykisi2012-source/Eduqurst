@@ -230,6 +230,39 @@ export const api = {
   adminCreateMaterial: (token: string, lessonId: number, body: MaterialCreate) =>
     req<Material>(`/api/admin/lessons/${lessonId}/materials`, { method: "POST", token, body }),
 
+  adminUploadMaterial: async (
+    token: string,
+    lessonId: number,
+    file: File,
+    kind: "video" | "pdf",
+    title: string,
+  ): Promise<Material> => {
+    if (!HAS_API) {
+      throw new ApiError(0, "Backend manzili sozlanmagan (VITE_API_URL bo‘sh).", "no_api");
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("kind", kind);
+    formData.append("title", title);
+
+    const res = await fetch(`${API_URL}/api/admin/lessons/${lessonId}/materials/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) {
+      let message = res.statusText || "Faylni yuklab bo‘lmadi";
+      try {
+        const data = await res.json();
+        message = data?.detail?.message_uz ?? data?.detail ?? message;
+      } catch {
+        // ignore
+      }
+      throw new ApiError(res.status, message);
+    }
+    return (await res.json()) as Material;
+  },
+
   adminDeleteMaterial: (token: string, materialId: number) =>
     req<null>(`/api/admin/materials/${materialId}`, { method: "DELETE", token }),
 };

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import unicodedata
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -289,6 +290,135 @@ def create_material(
         id=material.id, kind=material.kind, title=material.title,
         content=material.content, order_index=material.order_index,
         file_id=material.file_id, file_name=material.file_name,
+        file_size=material.file_size,
+    )
+
+
+@router.post(
+    "/lessons/{lesson_id}/materials/upload",
+    response_model=AdminMaterialOut,
+    status_code=201,
+)
+async def upload_material(
+    lesson_id: int,
+    file: UploadFile = File(...),
+    kind: str = Form(...),
+    title: str = Form(...),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin),
+):
+    """Upload a real video or PDF file from the browser. The file is relayed
+    to Telegram Bot API for permanent, free hosting and its file_id is stored."""
+    lesson = db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dars topilmadi")
+    if kind not in {"video", "pdf"}:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Faqat video yoki pdf fayl yuklash mumkin",
+        )
+    settings = get_settings()
+    if not settings.BOT_TOKEN:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="Telegram bot token sozlanmagan"
+        )
+
+    chat_id = admin.telegram_id or (
+        next(iter(settings.admin_id_set)) if settings.admin_id_set else None
+    )
+    if not chat_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="Admin Telegram ID topilmadi"
+        )
+
+    title = title.strip()
+    if not (2 <= len(title) <= 160):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Sarlavha 2–160 belgi bo‘lishi kerak",
+        )
+
+    # Telegram Bot API accepts at most 50 MB per bot upload. Read one byte past
+    # the cap so an oversized file is rejected without exhausting memory.
+    max_bytes = 50 * 1024 * 1024
+    content_bytes = await file.read(max_bytes + 1)
+    if len(content_bytes) > max_bytes:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Fayl hajmi 50 MB dan oshmasligi kerak (Telegram cheklovi).",
+        )
+    file_size = len(content_bytes)
+    file_name = (file.filename or ("video.mp4" if kind == "video" else "hujjat.pdf"))[:255]
+
+    tg_method = "sendVideo" if kind == "video" else "sendDocument"
+    tg_field = "video" if kind == "video" else "document"
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{settings.BOT_TOKEN}/{tg_method}",
+                data={"chat_id": chat_id, "caption": f"📚 EduQuest: {title}"},
+                files={
+                    tg_field: (
+                        file_name,
+                        content_bytes,
+                        file.content_type or "application/octet-stream",
+                    )
+                },
+            )
+            data = resp.json()
+    except Exception as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail=f"Telegram bilan aloqa xatosi: {exc}",
+        )
+
+    if not data.get("ok"):
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail=f"Fayl saqlanmadi: {data.get('description', '')}",
+        )
+
+    res_obj = data.get("result", {})
+    file_info = res_obj.get("video") if kind == "video" else res_obj.get("document")
+    if not file_info:
+        file_info = res_obj.get("document") or {}
+
+    file_id = file_info.get("file_id")
+    if not file_id:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, detail="Fayl ID olinmadi"
+        )
+
+    next_order = (
+        db.scalar(
+            select(func.max(LessonMaterial.order_index)).where(
+                LessonMaterial.lesson_id == lesson_id
+            )
+        )
+        or 0
+    ) + 1
+
+    material = LessonMaterial(
+        lesson_id=lesson_id,
+        kind=kind,
+        title=title.strip(),
+        content="",
+        order_index=next_order,
+        file_id=file_id,
+        file_name=file_name,
+        file_size=file_size,
+    )
+    db.add(material)
+    db.commit()
+    return AdminMaterialOut(
+        id=material.id,
+        kind=material.kind,
+        title=material.title,
+        content=material.content,
+        order_index=material.order_index,
+        file_id=material.file_id,
+        file_name=material.file_name,
         file_size=material.file_size,
     )
 

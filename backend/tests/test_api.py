@@ -1223,3 +1223,40 @@ def test_bot_created_content_and_progress_are_shared_with_site(client: TestClien
         "/api/internal/pupil/progress", params={"telegram_id": tg}, headers=_h()
     ).json()
     assert prog["lessons_passed"] >= 1
+
+
+def test_admin_upload_material(client: TestClient, monkeypatch):
+    """Admin uploads a real PDF file from browser via multipart form."""
+    admin, lesson, _, _, _ = _file_material_setup(client)
+
+    class MockResponse:
+        def json(self):
+            return {
+                "ok": True,
+                "result": {
+                    "document": {
+                        "file_id": "tg_doc_file_id_xyz",
+                        "file_name": "test_book.pdf",
+                        "file_size": 2048,
+                    }
+                },
+            }
+
+    async def mock_post(*args, **kwargs):
+        return MockResponse()
+
+    monkeypatch.setattr("httpx.AsyncClient.post", mock_post)
+
+    resp = client.post(
+        f"/api/admin/lessons/{lesson['id']}/materials/upload",
+        data={"kind": "pdf", "title": "Yuklangan kitob"},
+        files={"file": ("test_book.pdf", b"%PDF-1.4 mock content", "application/pdf")},
+        headers=admin,
+    )
+    assert resp.status_code == 201, resp.text
+    mat = resp.json()
+    assert mat["file_id"] == "tg_doc_file_id_xyz"
+    assert mat["title"] == "Yuklangan kitob"
+    assert mat["kind"] == "pdf"
+    assert mat["file_name"] == "test_book.pdf"
+
