@@ -36,11 +36,11 @@ def make_init_data(
 ) -> str:
     """Forge valid initData EXACTLY the way Telegram does.
 
-    Telegram percent-encodes each value (a space stays %20) and signs the
-    RAW, still-encoded `key=value` pairs sorted by key, joined with newlines.
-    Since 2024 Telegram also sends an Ed25519 `signature` field; the `hash`
-    check-string EXCLUDES both `hash` and `signature` — folding `signature`
-    into the HMAC breaks every real login.
+    The initData string percent-encodes each value (a space stays %20), but
+    the HMAC is computed over the DECODED `key=value` pairs sorted by key and
+    joined with newlines — proven with Telegram's own published sample in
+    tests/test_telegram_auth.py. Since 2024 Telegram also sends an Ed25519
+    `signature` field; the check-string EXCLUDES both `hash` and `signature`.
     `auth_date=0` omits the field entirely.
     """
     params: dict[str, str] = {
@@ -55,7 +55,7 @@ def make_init_data(
     elif auth_date > 0:
         params["auth_date"] = str(auth_date)
     check_string = "\n".join(
-        f"{k}={quote(v, safe='')}"
+        f"{k}={v}"
         for k, v in sorted(params.items())
         if k not in {"hash", "signature"}
     )
