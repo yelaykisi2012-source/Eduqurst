@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import webapp
+from app.bot_status import router as bot_status_router
 from app.config import get_settings
 from app.routers import (
     admin,
@@ -53,6 +54,7 @@ app.include_router(certificates.router)
 app.include_router(exams.router)
 app.include_router(bot_internal.router)
 app.include_router(admin.router)
+app.include_router(bot_status_router)
 
 
 @app.get("/api/health", tags=["meta"])

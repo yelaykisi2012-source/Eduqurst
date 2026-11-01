@@ -1,11 +1,13 @@
 # Repo-root Dockerfile for hosts that build from the repository root (e.g. Render).
 # backend/Dockerfile stays for fly.io/Railway (root dir = backend).
 #
-# Two stages, because the image now serves BOTH the API and the Mini App:
-#   1. node  — compiles webapp/ into a static bundle (webapp/dist)
-#   2. python — FastAPI + the bundle copied in
-# One git push therefore updates the API and the Mini App together; no separate
-# static host (and no second publish step that can silently fail) is involved.
+# Two stages, because the image now serves the API, the Mini App AND runs the
+# Telegram bot:
+#   1. node   — compiles webapp/ into a static bundle (webapp/dist)
+#   2. python — FastAPI + the bundle + bot/, started together by serve.py
+# One git push therefore updates the API, the Mini App and the bot at once; no
+# separate static host (and no second publish step that can silently fail) is
+# involved, and the bot costs nothing extra to keep online.
 
 # ---------------------------------------------------------------- stage 1: web
 FROM node:20-alpine AS webapp-builder
@@ -34,9 +36,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install dependencies first (better layer caching).
+# Install dependencies first (better layer caching). Both requirement sets land
+# in ONE image because the container now runs the API and the Telegram bot
+# together — see serve.py. (Render has no free Background Worker instance type,
+# so a separate bot service would cost $7/month.)
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+
+COPY bot/requirements.txt ./bot-requirements.txt
+RUN pip install --no-cache-dir -r bot-requirements.txt
 
 # Copy only what the app needs to RUN.
 # .env files are NOT in the git repo at all (see .gitignore) — secrets are
@@ -45,9 +53,16 @@ COPY backend/app ./app
 COPY backend/alembic.ini ./
 COPY backend/alembic ./alembic
 
+# The bot imports its own folder flat (import config, import handlers...),
+# which serve.py arranges by putting /app/bot on sys.path.
+COPY bot ./bot
+COPY serve.py ./
+
 # app/webapp.py looks for <workdir>/webapp/dist, so the bundle lands there.
 COPY --from=webapp-builder /build/dist ./webapp/dist
 
 # Render routes traffic to the EXPOSEd port; PORT override kept for other hosts.
 EXPOSE 8000
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# One process, two jobs: uvicorn in the main thread, aiogram polling in its own
+# thread with a supervisor that restarts it (and never takes the API down).
+CMD python serve.py

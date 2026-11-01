@@ -46,7 +46,31 @@ def _int_env(name: str, default: int) -> int:
     return int(raw) if raw.lstrip("-").isdigit() else default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    """Only an explicit true/false overrides; anything else keeps the default."""
+    raw = os.getenv(name, "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
 # Parent weekly digest schedule (Asia/Tashkent). Sunday = 6, 18:00 local.
 # The bot is the scheduler; backend only provides the data.
 DIGEST_WEEKDAY: int = _int_env("DIGEST_WEEKDAY", 6)
 DIGEST_HOUR: int = _int_env("DIGEST_HOUR", 18)
+
+# How often the bot pings the backend. Two jobs in one number:
+#   1. Render's free tier wakes slowly — pupils must not hit a cold API;
+#   2. inside the shared container (serve.py) Render only counts INBOUND
+#      traffic, and Telegram polling is outbound — this ping is inbound, so it
+#      is what stops the service (and the bot living in it) being spun down.
+# Must stay below the 15 minute spin-down, hence a 5 minute default.
+KEEPALIVE_SECONDS: int = _int_env("KEEPALIVE_SECONDS", 300)
+
+# Messages that arrived while the bot was offline (deploy, restart) are kept by
+# Telegram for a day. On the server we catch up on them — dropping would delete
+# real homework questions. Run the bot on a laptop and an old queue will fire
+# at you; set DROP_PENDING_UPDATES=true in bot/.env to throw it away instead.
+DROP_PENDING_UPDATES: bool = _bool_env("DROP_PENDING_UPDATES", False)
