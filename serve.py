@@ -86,6 +86,25 @@ def _note_restart() -> None:
         board.note_restart()
 
 
+# Names whose VALUES must never leave the container in an error message.
+_SECRET_NAME_HINTS = ("TOKEN", "SECRET", "PASSWORD", "KEY", "DATABASE_URL")
+
+
+def safe_error_detail(exc: BaseException) -> str:
+    """One sanitized line about a crash, fit for the public /api/bot-status.
+
+    The exception class name alone ("RuntimeError") is not enough to debug a
+    crash-loop on a host you cannot shell into, so the message is published too
+    — after every value that looks like a credential has been scrubbed out and
+    the whole line cut short. Paths showing up is acceptable; a token is not.
+    """
+    text = " ".join(str(exc).split()) or type(exc).__name__
+    for name, value in os.environ.items():
+        if value and len(value) >= 6 and any(h in name.upper() for h in _SECRET_NAME_HINTS):
+            text = text.replace(value, "•••")
+    return text[:240]
+
+
 def run_bot_once() -> None:
     """Start polling and block until the bot stops (it normally never returns)."""
     asyncio.run(import_bot_main().main())
@@ -106,7 +125,12 @@ def bot_loop(
 
     attempt = 0
     while not stop.is_set():
-        _report(phase="starting", started_at=time.time(), last_error=None)
+        _report(
+            phase="starting",
+            started_at=time.time(),
+            last_error=None,
+            last_error_detail=None,
+        )
         started = time.time()
         try:
             job()
@@ -128,7 +152,11 @@ def bot_loop(
             attempt += 1
             delay = delays[min(attempt - 1, len(delays) - 1)]
             _note_restart()
-            _report(phase="crashed", last_error=type(exc).__name__)
+            _report(
+                phase="crashed",
+                last_error=type(exc).__name__,
+                last_error_detail=safe_error_detail(exc),
+            )
             logger.exception(
                 "Bot ishdan chiqdi (%s) — %d soniyadan qayta boshlanadi (urinish %d)",
                 type(exc).__name__, delay, attempt,

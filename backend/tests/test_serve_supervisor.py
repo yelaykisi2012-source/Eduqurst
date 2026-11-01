@@ -113,6 +113,51 @@ def _raise_keyerror():
     raise KeyboardInterrupt
 
 
+class TestErrorDetail:
+    """The public board may carry ONE line about the crash — never a secret.
+
+    Without it a crash-loop on Render cannot be diagnosed from outside, because
+    nobody is sitting at a terminal with the logs open.
+    """
+
+    def test_a_bot_token_inside_the_message_is_scrubbed(self, monkeypatch):
+        monkeypatch.setenv("BOT_TOKEN", "123456:SECRETVALUE")
+        detail = serve.safe_error_detail(
+            RuntimeError("token 123456:SECRETVALUE was rejected")
+        )
+        assert "SECRETVALUE" not in detail
+        assert "rejected" in detail
+
+    def test_a_database_url_inside_the_message_is_scrubbed(self, monkeypatch):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@ep-x.neon.tech/db")
+        detail = serve.safe_error_detail(
+            RuntimeError("could not connect to postgresql://user:pw@ep-x.neon.tech/db")
+        )
+        assert "pw@ep-x" not in detail
+
+    def test_a_long_traceback_line_is_cut_short(self):
+        assert len(serve.safe_error_detail(RuntimeError("x" * 5000))) <= 240
+
+    def test_multiline_becomes_one_line(self):
+        assert serve.safe_error_detail(RuntimeError("a\n   b")) == "a b"
+
+    def test_an_empty_message_still_says_what_died(self):
+        assert serve.safe_error_detail(ValueError()) == "ValueError"
+
+    def test_the_board_learns_the_reason_after_a_crash(self):
+        job = FailingJob(times=1, error_factory=lambda: RuntimeError("Polling is not started"))
+        serve.bot_loop(FakeStop(stops_after=1), job=job, delays=(1,))
+        state = bot_status.snapshot()
+        assert state["last_error"] == "RuntimeError"
+        assert state["last_error_detail"] == "Polling is not started"
+
+    def test_a_fresh_attempt_clears_the_previous_reason(self):
+        job = FailingJob(times=1, error_factory=lambda: RuntimeError("birinchi xato"))
+        serve.bot_loop(FakeStop(stops_after=2), job=job, delays=(1, 1))
+        state = bot_status.snapshot()
+        assert state["last_error_detail"] is None, "yangi urinish — eski xato o'chsin"
+
+
 class TestMissingBot:
     def test_no_bot_folder_means_disabled_not_an_endless_retry_loop(self, tmp_path, monkeypatch):
         monkeypatch.setattr(serve, "BOT_DIR", tmp_path / "absent")

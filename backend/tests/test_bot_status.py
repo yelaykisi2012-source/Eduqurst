@@ -18,6 +18,7 @@ FIELDS = {
     "phase",
     "restarts",
     "last_error",
+    "last_error_detail",
     "uptime_seconds",
     "last_heartbeat_ok",
     "heartbeat_age_seconds",
@@ -64,6 +65,14 @@ class TestBoard:
         assert state["restarts"] == 2
         assert state["last_error"] == "SystemExit"
 
+    def test_the_one_line_detail_reaches_the_board(self):
+        """Without it a crash-loop on Render is unfixable from the outside."""
+        bot_status.update(
+            phase="crashed", last_error="RuntimeError", last_error_detail="Polling is not started"
+        )
+        state = bot_status.snapshot()
+        assert state["last_error_detail"] == "Polling is not started"
+
     def test_snapshot_is_json_safe(self):
         bot_status.heartbeat(True)
         json.dumps(bot_status.snapshot())  # must not raise
@@ -83,8 +92,18 @@ class TestEndpoint:
     def test_nothing_secret_can_ride_along(self, client):
         from app.config import get_settings
 
-        token = get_settings().BOT_TOKEN
+        settings = get_settings()
+        # What the board is allowed to hold: names, counters, one scrubbed line.
+        bot_status.update(
+            phase="crashed",
+            last_error="TelegramUnauthorizedError",
+            last_error_detail="Telegram server says - Unauthorized",
+        )
         text = client.get("/api/bot-status").text
-        assert token and token not in text
-        assert "telegram" not in text.lower()
+        for secret in (
+            settings.BOT_TOKEN,
+            settings.JWT_SECRET,
+            str(settings.DATABASE_URL),
+        ):
+            assert secret and secret not in text
         assert "999000111" not in text  # the admin id used across this suite

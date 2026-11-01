@@ -25,7 +25,8 @@ _STATE: dict[str, object] = {
     "phase": "not_started",   # not_started|starting|running|unreachable|crashed|stopped|disabled
     "started_at": None,       # wall-clock seconds of the current/last start attempt
     "restarts": 0,            # how many times the supervisor had to restart the bot
-    "last_error": None,       # exception CLASS name only (never the message — it can carry URLs)
+    "last_error": None,       # exception CLASS name
+    "last_error_detail": None,  # one short line, scrubbed by serve.safe_error_detail()
     "last_heartbeat_at": None,
     "last_heartbeat_ok": None,
 }
@@ -65,6 +66,7 @@ def reset() -> None:
                 "started_at": None,
                 "restarts": 0,
                 "last_error": None,
+                "last_error_detail": None,
                 "last_heartbeat_at": None,
                 "last_heartbeat_ok": None,
             }
@@ -82,6 +84,7 @@ def snapshot() -> dict[str, object]:
         "phase": data["phase"],
         "restarts": data["restarts"],
         "last_error": data["last_error"],
+        "last_error_detail": data["last_error_detail"],
         "uptime_seconds": round(now - float(started_at), 1) if started_at else None,
         "last_heartbeat_ok": data["last_heartbeat_ok"],
         "heartbeat_age_seconds": round(now - float(beat), 1) if beat else None,
