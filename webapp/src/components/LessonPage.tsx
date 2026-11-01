@@ -23,43 +23,59 @@ const formatBytes = (bytes: number | null) => {
   return `${Math.max(1, Math.round(bytes / 1000))} KB`;
 };
 
-/** Uploaded file material (PDF/Video via Telegram file id) */
+/** Uploaded file material (PDF/Video via Telegram file id).
+ *
+ * The file is fetched ONCE and kept as an object URL, then it can be opened
+ * INSIDE the lesson (PDF viewer / video player) and still be downloaded. That
+ * is what the teacher asked for: "men yuklagan dars pdf sayt ozida ochilsin,
+ * video darslar ham ichida ochilsin, yuklab olamsiz".
+ */
 function FileMaterialCard({ material, token }: { material: Material; token: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [file, setFile] = useState<{ url: string; name: string } | null>(null);
+  const [open, setOpen] = useState(false);
+
+  const isVideo = material.kind === "video";
 
   useEffect(() => {
     return () => {
-      if (videoUrl) URL.revokeObjectURL(videoUrl);
+      if (file) URL.revokeObjectURL(file.url);
     };
-  }, [videoUrl]);
+  }, [file]);
 
-  const handleOpen = async () => {
+  const load = async () => {
+    if (file) return file;
     setBusy(true);
     setError("");
     try {
       const { blob, fileName } = await api.downloadMaterialFile(token, material.id);
-      const url = URL.createObjectURL(blob);
-      if (material.kind === "video") {
-        setVideoUrl(url);
-      } else {
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      }
+      const loaded = { url: URL.createObjectURL(blob), name: fileName };
+      setFile(loaded);
+      return loaded;
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Faylni yuklab bo‘lmadi");
+      return null;
     } finally {
       setBusy(false);
     }
   };
 
-  const isVideo = material.kind === "video";
+  const handleOpen = async () => {
+    if (await load()) setOpen(true);
+  };
+
+  const handleDownload = async () => {
+    const loaded = await load();
+    if (!loaded) return;
+    const a = document.createElement("a");
+    a.href = loaded.url;
+    a.download = loaded.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const meta = [material.file_name, formatBytes(material.file_size)].filter(Boolean).join(" · ");
 
   return (
@@ -67,33 +83,81 @@ function FileMaterialCard({ material, token }: { material: Material; token: stri
       <div className="flex items-center justify-between gap-3 p-4 rounded-2xl border border-blue-100 bg-white shadow-xs">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-            {isVideo ? <IconPlay size={20} /> : <IconDownload size={20} />}
+            {isVideo ? <IconPlay size={20} /> : <IconFileText size={20} />}
           </div>
           <div className="min-w-0">
             <h4 className="text-sm font-bold text-slate-800 truncate">{material.title}</h4>
             <p className="text-xs text-slate-400 truncate">{meta || (isVideo ? "Video darslik" : "PDF fayl")}</p>
           </div>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          loading={busy}
-          onClick={handleOpen}
-          icon={isVideo ? <IconPlay size={14} /> : <IconDownload size={14} />}
-        >
-          {isVideo ? "Ochish" : "Yuklab olish"}
-        </Button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={busy && !file}
+            onClick={handleOpen}
+            icon={isVideo ? <IconPlay size={14} /> : <IconFileText size={14} />}
+          >
+            Ochish
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleDownload}
+            icon={<IconDownload size={14} />}
+          >
+            Yuklab olish
+          </Button>
+        </div>
       </div>
 
       {error && <p className="mt-1.5 text-xs font-semibold text-rose-500">{error}</p>}
 
-      {videoUrl && (
+      {open && file && isVideo && (
         <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-md">
-          <video controls src={videoUrl} className="w-full max-h-96">
+          <video controls src={file.url} className="w-full max-h-96">
             Brauzeringiz video formatini qo‘llab-quvvatlamaydi.
           </video>
+          <ViewerFooter name={file.name} onDownload={handleDownload} onClose={() => setOpen(false)} />
         </div>
       )}
+
+      {open && file && !isVideo && (
+        <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md">
+          {/* Blob URLs render in the browser's own PDF viewer — no dependency,
+              and the file never leaves the page. */}
+          <iframe
+            title={material.title || "PDF"}
+            src={file.url}
+            className="h-[70vh] w-full bg-slate-50"
+          />
+          <ViewerFooter name={file.name} onDownload={handleDownload} onClose={() => setOpen(false)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ViewerFooter({
+  name,
+  onDownload,
+  onClose,
+}: {
+  name: string;
+  onDownload: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/80 px-3 py-2">
+      <span className="min-w-0 truncate text-[11px] font-bold text-slate-500">{name}</span>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Button variant="ghost" size="sm" onClick={onDownload} icon={<IconDownload size={13} />}>
+          Yuklab olish
+        </Button>
+        <Button variant="secondary" size="sm" onClick={onClose}>
+          Yopish
+        </Button>
+      </div>
     </div>
   );
 }
