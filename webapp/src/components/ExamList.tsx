@@ -65,7 +65,7 @@ export default function ExamList({ token, onOpen }: ExamListProps) {
     void load();
   }, [load, retry]);
 
-  const readyCount = (cards ?? []).filter((c) => c.available).length;
+  const subjectCount = (cards ?? []).length;
   const passedCount = (cards ?? []).filter((c) => c.passed).length;
 
   return (
@@ -160,7 +160,7 @@ export default function ExamList({ token, onOpen }: ExamListProps) {
               Fanlar bo‘yicha imtihonlar
             </h2>
             <span className="text-[10px] sm:text-[11px] font-bold text-slate-400">
-              {passedCount}/{readyCount} topshirilgan
+              {passedCount}/{subjectCount} topshirilgan
             </span>
           </div>
 
