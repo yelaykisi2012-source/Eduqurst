@@ -615,8 +615,8 @@ function AvatarSection({
             <p className="mt-1.5 text-[11px] font-bold text-rose-600">{error}</p>
           )}
           <p className="mt-1.5 text-[10px] font-semibold text-slate-400">
-            Telegram profil rasmini bot orqali olish — tez orada. Hozir rasmni shu
-            yerdan yuklashingiz mumkin.
+            Telegram’dagi rasmingizni botdagi «🖼 Rasmimni qo‘yish» tugmasi orqali
+            ham shu yerga qo‘yishingiz mumkin.
           </p>
         </div>
       </div>
