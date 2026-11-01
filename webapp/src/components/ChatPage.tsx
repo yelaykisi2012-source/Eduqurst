@@ -821,9 +821,8 @@ export default function ChatPage({
           </Card>
 
           <p className="mt-2.5 text-[10px] sm:text-[11px] font-semibold text-slate-400 text-center px-2">
-            Chatda o‘z ismingiz va yulduzlaringizdan tashqari hech qanday ma’lumot
-            ko‘rsatilmaydi. Qoidalarga rioya qiling — keraksiz xabarni o‘qituvchi
-            o‘chiradi.
+            Chatda ismingiz, profil rasmingiz va xabarlaringiz ko‘rinadi.
+            Qoidalarga rioya qiling — keraksiz xabarni o‘qituvchi o‘chiradi.
           </p>
         </>
       )}
