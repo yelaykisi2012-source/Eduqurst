@@ -189,11 +189,17 @@ async def main() -> None:
     # the old queue gone — set DROP_PENDING_UPDATES=true in bot/.env for that.
     await bot.delete_webhook(drop_pending_updates=config.DROP_PENDING_UPDATES)
 
-    logger.info("EduQuest bot ishga tushdi. To'xtatish: Ctrl+C")
+    logger.info("EduQuest bot ishga tushdi — Telegram yangiliklari kutilmoqda.")
     keepalive = asyncio.create_task(keepalive_loop(logger))
     digest = asyncio.create_task(weekly_digest.digest_loop(bot))
     try:
-        await dp.start_polling(bot)
+        # handle_signals=False is REQUIRED inside serve.py: the bot runs in a
+        # non-main thread, and on Linux asyncio refuses to install signal handlers
+        # there ("RuntimeError: set_wakeup_fd only works in main thread"). Windows
+        # silently skips it, so a laptop run never shows the problem — the server
+        # crash-looped on its very first polling attempt. uvicorn (main thread)
+        # owns SIGTERM/SIGINT; when the container stops, this thread stops with it.
+        await dp.start_polling(bot, handle_signals=False)
     finally:
         digest.cancel()
         keepalive.cancel()

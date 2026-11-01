@@ -144,5 +144,71 @@ class RestartSafetyTests(unittest.TestCase):
         self.assertIn("message", answered)
 
 
+class PollingSetupTests(unittest.TestCase):
+    """main() must hand the bot over to Telegram the way a container needs."""
+
+    def _run_main(self):
+        seen: dict = {}
+
+        class FakeSession:
+            def __init__(self):
+                self.closed = False
+
+            async def close(self):
+                self.closed = True
+
+        class FakeBot:
+            def __init__(self, **kwargs):
+                seen["bot_kwargs"] = kwargs
+                self.session = FakeSession()
+
+            async def set_my_commands(self, commands):
+                seen["commands"] = commands
+
+            async def delete_webhook(self, **kwargs):
+                seen["delete_webhook"] = kwargs
+
+        class RecordingDispatcher(bot_main.Dispatcher):
+            async def start_polling(self, *bots, **kwargs):
+                seen["start_polling"] = kwargs
+                seen["polling_bots"] = bots
+                raise Stop
+
+        async def never_digest(bot):
+            await asyncio.sleep(3600)
+
+        with patch.object(bot_main, "Bot", FakeBot), patch.object(
+            bot_main, "Dispatcher", RecordingDispatcher
+        ), patch.object(bot_main, "acquire_single_instance") as lock, patch.object(
+            bot_main.weekly_digest, "digest_loop", never_digest
+        ):
+            with self.assertRaises(Stop):
+                asyncio.run(bot_main.main())
+        seen["lock_called"] = lock.called
+        return seen
+
+    def test_polling_never_installs_signal_handlers_from_a_thread(self):
+        """The bug that killed the bot on Render on its very first attempt.
+
+        Linux asyncio refuses signal handlers outside the main thread and raises
+        "RuntimeError: set_wakeup_fd only works in main thread of the main
+        interpreter". Windows suppresses it, so only the server ever saw it.
+        """
+        seen = self._run_main()
+        self.assertIs(seen["start_polling"]["handle_signals"], False)
+
+    def test_the_queued_messages_setting_is_actually_sent_to_telegram(self):
+        seen = self._run_main()
+        self.assertEqual(
+            seen["delete_webhook"], {"drop_pending_updates": config.DROP_PENDING_UPDATES}
+        )
+
+    def test_the_bot_really_starts_polling_and_cleans_up_afterwards(self):
+        seen = self._run_main()
+        self.assertTrue(seen["lock_called"], "ikki nusxa bir Telegram'ni oldi olmasin")
+        self.assertEqual(len(seen["polling_bots"]), 1)
+        self.assertTrue(seen["polling_bots"][0].session.closed, "restart sesh leak qilmasin")
+
+
 if __name__ == "__main__":
     unittest.main()
