@@ -14,5 +14,11 @@ __pycache__/
 venv/
 node_modules/
 dist/
+# Docker patterns without ** only match the context root, so say it explicitly:
+# the local installs/builds of backend, bot and webapp must never be uploaded.
+**/.venv/
+**/venv/
+**/node_modules/
+**/dist/
 *.log
 .git/

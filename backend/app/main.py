@@ -5,9 +5,12 @@ Run locally (from backend/, venv active):
     uvicorn app.main:app --reload --port 8000
 Docs UI: http://localhost:8000/docs
 """
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import webapp
 from app.config import get_settings
 from app.routers import (
     admin,
@@ -50,3 +53,13 @@ app.include_router(admin.router)
 def health() -> dict:
     """Liveness probe + used by deployment checks."""
     return {"ok": True, "service": "eduquest-backend"}
+
+
+# Registered LAST on purpose: the SPA catch-all must never shadow an API route.
+# It only mounts when a compiled Mini App (webapp/dist) is present — in the
+# Docker image the build stage always produces one; without it the API is
+# unchanged (tests, backend-only deployments).
+if webapp.register_webapp(app):
+    logging.getLogger("eduquest").info(
+        "Mini App servis qilinmoqda: %s", webapp.find_dist()
+    )
