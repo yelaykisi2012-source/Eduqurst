@@ -11,11 +11,15 @@
  * we fail loudly with an honest message instead of silently misbehaving.
  */
 import type {
+  AdminExamCoverage,
   AdminLesson,
   AdminQuestionDetail,
   AdminSubject,
   Certificate,
   EligibleCertificate,
+  ExamCard,
+  ExamPaper,
+  ExamResult,
   Grade,
   GradeOverview,
   Leaderboard,
@@ -44,6 +48,11 @@ export class ApiError extends Error {
     public readonly status: number,
     message: string,
     public readonly code?: string, // backend machine code, e.g. "grade_not_selected"
+    /**
+     * Structured detail object from the backend (when it is not a plain string).
+     * e.g. an exam lock sends { error, message_uz, locked_until }.
+     */
+    public readonly payload?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -78,14 +87,16 @@ async function req<T>(
     const detail = (data as { detail?: unknown } | null)?.detail;
     let message = res.statusText || "Noma’lum xatolik";
     let code: string | undefined;
+    let payload: Record<string, unknown> | undefined;
     if (typeof detail === "string") {
       message = detail;
     } else if (detail && typeof detail === "object") {
       const d = detail as { error?: string; message_uz?: string };
       code = d.error;
       message = d.message_uz ?? "Xatolik yuz berdi";
+      payload = detail as Record<string, unknown>;
     }
-    throw new ApiError(res.status, message, code);
+    throw new ApiError(res.status, message, code, payload);
   }
   return data as T;
 }
@@ -222,6 +233,38 @@ export const api = {
 
   submitQuiz: (token: string, id: number, body: unknown) =>
     req<QuizResult>(`/api/lessons/${id}/quiz/submit`, { method: "POST", token, body }),
+
+  // ---------- mandatory exam (majburiy sertifikat) ----------
+
+  /** Every exam of the pupil's grade: readiness, 30-day lock, best mark, certificate. */
+  exams: (token: string) => req<ExamCard[]>("/api/exams", { token }),
+
+  /**
+   * Open (or resume) the frozen paper. 409 "exam_locked" carries `locked_until`,
+   * 409 "exam_not_configured" carries `available` / `required` — the caller reads
+   * them from ApiError.payload to explain WHY the exam cannot start yet.
+   */
+  examPaper: (token: string, subjectId: number) =>
+    req<ExamPaper>(`/api/exams/${subjectId}/paper`, { token }),
+
+  /** The attempt id is the idempotency key: submitting twice returns the same result. */
+  submitExam: (token: string, subjectId: number, body: { attempt_id: number; answers: unknown[] }) =>
+    req<ExamResult>(`/api/exams/${subjectId}/submit`, { method: "POST", token, body }),
+
+  /** Admin: mark a question in/out of the exam paper. */
+  adminSetQuestionExam: (token: string, questionId: number, isExam: boolean) =>
+    req<AdminQuestionDetail>(`/api/admin/questions/${questionId}/exam`, {
+      method: "PATCH",
+      token,
+      body: { is_exam: isExam },
+    }),
+
+  /** Admin: how close each subject is to a ready 20-question paper. */
+  adminExamCoverage: (token: string, gradeId?: number) =>
+    req<AdminExamCoverage[]>(
+      `/api/admin/exams${gradeId ? `?grade_id=${gradeId}` : ""}`,
+      { token },
+    ),
 
   // ---------- admin ----------
   adminOverview: (token: string) => req<GradeOverview[]>("/api/admin/overview", { token }),

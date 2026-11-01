@@ -66,6 +66,8 @@ export interface AdminQuestionDetail {
   options: AdminQuestionOption[];
   /** Only for kind="matching". */
   pairs: AdminPair[];
+  /** True when this question belongs to the mandatory exam paper. */
+  is_exam: boolean;
 }
 
 export interface AdminPair {
@@ -236,6 +238,10 @@ export interface Certificate {
   score_percent: number;
   stars: number;
   issued_at: string;
+  /** "course" (all lessons passed) | "exam" (mandatory exam passed). */
+  issued_via: string;
+  /** 5-point mark, set when issued_via === "exam": "5" | "4" | "2.5". */
+  mark: string | null;
   /** Public QR verification page. */
   verify_url: string;
 }
@@ -248,6 +254,64 @@ export interface EligibleCertificate {
   total_lessons: number;
   score_percent: number;
   certificate: Certificate | null;
+}
+
+/**
+ * Mandatory subject exam (majburiy sertifikat).
+ * GET /api/exams returns one card per published subject of the pupil's grade.
+ */
+export interface ExamCard {
+  subject_id: number;
+  subject_name: string;
+  emoji: string;
+  /** Questions in the paper — 0 while the admin has not flagged enough. */
+  total: number;
+  available: boolean;
+  /** Set for 30 days after a failed sitting (ISO, UTC). */
+  locked_until: string | null;
+  best_score_percent: number | null;
+  /** "5" | "4" | "2.5" of the best PASSED sitting. */
+  best_mark: string | null;
+  passed: boolean;
+  certificate_code: string | null;
+}
+
+/** The frozen paper from GET /api/exams/{subjectId}/paper (no correct flags). */
+export interface ExamPaper {
+  attempt_id: number;
+  subject_id: number;
+  subject_name: string;
+  total: number;
+  pass_percent: number;
+  lock_days: number;
+  questions: QuizQuestion[];
+}
+
+/** Result of POST /api/exams/{subjectId}/submit. */
+export interface ExamResult {
+  attempt_id: number;
+  total_count: number;
+  correct_count: number;
+  score_percent: number;
+  mark: string;
+  passed: boolean;
+  stars_earned: number;
+  stars_total: number;
+  locked_until: string | null;
+  certificate: Certificate | null;
+  message_uz: string;
+  mistakes: Mistake[];
+}
+
+/** Admin: how close a subject is to a ready 20-question paper. */
+export interface AdminExamCoverage {
+  subject_id: number;
+  subject_name: string;
+  grade_id: number;
+  grade_name: string;
+  flagged: number;
+  ready: boolean;
+  exam_size: number;
 }
 
 /** Weekly stars league (GET /api/leaderboard). */

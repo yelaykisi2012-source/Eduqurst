@@ -506,6 +506,7 @@ def test_admin_exam_flag_is_admin_only_and_visible(client: TestClient):
     assert row["flagged"] == 0
     assert row["ready"] is False, "an empty grade pool cannot build a paper"
     assert row["grade_name"] == "6-sinf"
+    assert row["exam_size"] == exams.EXAM_SIZE, "the panel must not hardcode the paper size"
 
     missing = client.patch(
         "/api/admin/questions/999999/exam", json={"is_exam": True}, headers=admin

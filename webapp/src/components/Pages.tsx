@@ -217,7 +217,7 @@ function CertificatesCard({ token }: { token: string }) {
             📜 Sertifikatlar
           </h2>
           <p className="text-[10px] sm:text-xs font-semibold text-slate-400 mt-0.5">
-            Kursni to‘liq tugatganingizda QR-kodli PDF sertifikat olinadi
+            Kursni to‘liq tugatib yoki majburiy imtihondan o‘tib QR-kodli sertifikat olinadi
           </p>
         </div>
         {issued.length > 0 && (
@@ -248,7 +248,8 @@ function CertificatesCard({ token }: { token: string }) {
         <p className="text-[11px] text-slate-400 mt-3">Yuklanmoqda…</p>
       ) : empty ? (
         <p className="text-[11px] sm:text-xs text-slate-500 mt-3">
-          Hali sertifikat yo‘q. Biror fanda barcha darslarni muvaffaqiyatli tugating —
+          Hali sertifikat yo‘q. Biror fanda barcha darslarni tugating yoki «Imtihon»
+          bo‘limidagi majburiy imtihondan 90% va undan yuqori natija bilan o‘ting —
           sertifikat shu yerda paydo bo‘ladi. 📈
         </p>
       ) : (
@@ -266,7 +267,11 @@ function CertificatesCard({ token }: { token: string }) {
                   </p>
                   <p className="text-[10px] sm:text-[11px] font-semibold text-slate-400 truncate">
                     {course.total_lessons} ta dars · {course.score_percent}% ·{" "}
-                    {cert ? `kod ${cert.code}` : "kurs tugallandi"}
+                    {cert
+                      ? cert.issued_via === "exam"
+                        ? `Imtihon · baho ${cert.mark ?? "—"} · kod ${cert.code}`
+                        : `Kurs · kod ${cert.code}`
+                      : "kurs tugallandi"}
                   </p>
                 </div>
                 {cert && (
@@ -298,9 +303,17 @@ function CertificatesCard({ token }: { token: string }) {
                   {cert.subject_name}
                 </p>
                 <p className="text-[10px] sm:text-[11px] font-semibold text-slate-400 truncate">
-                  {cert.grade_name} · {cert.score_percent}% · kod {cert.code}
+                  {cert.grade_name} · {cert.score_percent}% ·{" "}
+                  {cert.issued_via === "exam"
+                    ? `Majburiy imtihon · baho ${cert.mark ?? "—"} · kod ${cert.code}`
+                    : `Kurs · kod ${cert.code}`}
                 </p>
               </div>
+              {cert.issued_via === "exam" && (
+                <Badge variant="purple" size="sm" className="hidden sm:inline-flex">
+                  Imtihon
+                </Badge>
+              )}
               <Button
                 variant="secondary"
                 size="sm"

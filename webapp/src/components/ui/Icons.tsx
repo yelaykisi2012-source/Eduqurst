@@ -24,8 +24,7 @@ export function IconBook({ size = 20, className = "", ...props }: IconProps) {
   );
 }
 
-export function IconTrophy({ size = 20, className = "", ...props }: IconProps) {
-  return (
+export function IconTrophy({ size = 20, className = "", ...props }: IconProps) {  return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
       <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
       <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
@@ -227,6 +226,17 @@ export function IconChevronDown({ size = 20, className = "", ...props }: IconPro
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
       <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+/** Mandatory exam: a paper sheet with a check mark. */
+export function IconExam({ size = 20, className = "", ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v5h5" />
+      <path d="m9 14 2 2 4-4" />
     </svg>
   );
 }

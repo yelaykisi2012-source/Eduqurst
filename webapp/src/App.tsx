@@ -7,6 +7,9 @@ import GradePicker from "./components/GradePicker";
 import LessonPage from "./components/LessonPage";
 import QuizPage from "./components/QuizPage";
 import ResultScreen from "./components/ResultScreen";
+import ExamList from "./components/ExamList";
+import ExamPage from "./components/ExamPage";
+import ExamResultScreen from "./components/ExamResultScreen";
 import AdminPage from "./components/AdminPage";
 import WebLogin from "./components/WebLogin";
 import { AchievementsPage, ProfilePage } from "./components/Pages";
@@ -19,9 +22,11 @@ import {
   IconPlay,
   IconSparkles,
   IconArrowRight,
+  IconExam,
 } from "./components/ui/Icons";
 import { api, ApiError } from "./api";
 import type {
+  ExamResult,
   Grade,
   LessonSummary,
   Profile,
@@ -46,6 +51,13 @@ type View =
   | { kind: "lesson"; lessonId: number; subjectId: number }
   | { kind: "quiz"; lessonId: number; subjectId: number }
   | { kind: "result"; lessonId: number; subjectId: number; result: QuizResult }
+  | { kind: "exams" }
+  | { kind: "exam"; subjectId: number }
+  | {
+      kind: "examResult";
+      subjectId: number;
+      result: ExamResult;
+    }
   | { kind: "achievements" }
   | { kind: "profile" }
   | { kind: "admin" };
@@ -88,6 +100,8 @@ export default function App() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [view, setView] = useState<View>({ kind: "home" });
   const [quizNonce, setQuizNonce] = useState(0);
+  /** Changing it remounts ExamPage, so a retake starts from a clean sheet. */
+  const [examNonce, setExamNonce] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -280,13 +294,15 @@ export default function App() {
       ? "home"
       : view.kind === "subject" || view.kind === "lesson" || view.kind === "quiz" || view.kind === "result"
         ? "lessons"
-        : view.kind === "achievements"
-          ? "achievements"
-          : view.kind === "profile"
-            ? "profile"
-            : view.kind === "admin"
-              ? "admin"
-              : "home";
+        : view.kind === "exams" || view.kind === "exam" || view.kind === "examResult"
+          ? "exams"
+          : view.kind === "achievements"
+            ? "achievements"
+            : view.kind === "profile"
+              ? "profile"
+              : view.kind === "admin"
+                ? "admin"
+                : "home";
 
   const handleTabChange = (tab: NavTab) => {
     if (tab === "home") navTo({ kind: "home" });
@@ -297,7 +313,8 @@ export default function App() {
       } else {
         navTo({ kind: "home" });
       }
-    } else if (tab === "achievements") navTo({ kind: "achievements" });
+    } else if (tab === "exams") navTo({ kind: "exams" });
+    else if (tab === "achievements") navTo({ kind: "achievements" });
     else if (tab === "profile") navTo({ kind: "profile" });
     else if (tab === "admin") navTo({ kind: "admin" });
   };
@@ -527,6 +544,46 @@ export default function App() {
               </Card>
             )}
 
+            {/* Majburiy imtihon — the second road to a certificate */}
+            <Card
+              variant="interactive"
+              padding="none"
+              onClick={() => navTo({ kind: "exams" })}
+              className="p-2.5 sm:p-4 border border-indigo-200/80 bg-gradient-to-r from-indigo-50/70 via-violet-50/30 to-white hover:border-indigo-300"
+            >
+              <div className="flex items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-2xs">
+                    <IconExam size={17} />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-[10px] font-extrabold text-indigo-600 uppercase">
+                      20 savol · 90% · sertifikat
+                    </span>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                      Majburiy imtihon
+                    </h3>
+                    <p className="text-[10px] sm:text-[11px] font-semibold text-slate-500 truncate">
+                      Darslarni o‘qimasangiz ham bilimingizni isbotlang
+                    </p>
+                  </div>
+                </div>
+                <div className="shrink-0">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    iconRight={<IconArrowRight size={13} />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navTo({ kind: "exams" });
+                    }}
+                  >
+                    Ochish
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
             {/* Subjects Section */}
             <div id="subjects-section" className="space-y-2 sm:space-y-3">
               <div className="flex items-center justify-between px-0.5">
@@ -645,6 +702,35 @@ export default function App() {
               navTo({ kind: "quiz", lessonId: view.lessonId, subjectId: view.subjectId });
             }}
             onContinue={() => finishQuiz(view.subjectId)}
+          />
+        ) : view.kind === "exams" ? (
+          /* ===================== EXAM LIST ===================== */
+          <ExamList
+            token={token}
+            onOpen={(subjectId) => navTo({ kind: "exam", subjectId })}
+          />
+        ) : view.kind === "exam" ? (
+          /* ===================== EXAM PAPER ===================== */
+          <ExamPage
+            key={examNonce}
+            token={token}
+            subjectId={view.subjectId}
+            onBack={() => navTo({ kind: "exams" })}
+            onResult={(r) =>
+              navTo({ kind: "examResult", subjectId: view.subjectId, result: r })
+            }
+          />
+        ) : view.kind === "examResult" ? (
+          /* ===================== EXAM RESULT ===================== */
+          <ExamResultScreen
+            token={token}
+            result={view.result}
+            onDone={() => {
+              // The paper, the lock and the certificate all changed server-side.
+              setExamNonce((n) => n + 1);
+              void loadHome(token).catch(() => undefined);
+              navTo({ kind: "exams" });
+            }}
           />
         ) : view.kind === "achievements" ? (
           /* ===================== ACHIEVEMENTS ===================== */

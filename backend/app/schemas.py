@@ -280,6 +280,7 @@ class AdminExamCoverageOut(BaseModel):
     grade_name: str
     flagged: int  # questions marked is_exam inside this subject
     ready: bool  # at least EXAM_SIZE across subject + same-grade fillers
+    exam_size: int  # questions in a paper, so the UI never hardcodes it
 
 
 # ---------- content ----------

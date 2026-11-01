@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api";
 import type {
+  AdminExamCoverage,
   AdminLesson,
   AdminQuestionDetail,
   AdminSubject,
@@ -53,6 +54,8 @@ export default function AdminPage({ token, notify }: Props) {
   const [panel, setPanel] = useState<{ lessonId: number; kind: Panel } | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0); // remount forms after a successful add
+  /** Bumped whenever a question's exam flag changes, so the coverage list reloads. */
+  const [examTick, setExamTick] = useState(0);
 
   const loadOverview = useCallback(async () => {
     try {
@@ -282,6 +285,16 @@ export default function AdminPage({ token, notify }: Props) {
         </div>
       )}
 
+      {/* 2b) Exam readiness: which subjects can already produce a 20-question paper */}
+      {activeGrade && (
+        <ExamCoverage
+          token={token}
+          gradeId={activeGrade.grade_id}
+          tick={examTick}
+          onPickSubject={(id) => pickSubject(id)}
+        />
+      )}
+
       {/* 3) Lessons of the chosen subject */}
       {activeSubject && (
         <div>
@@ -389,6 +402,7 @@ export default function AdminPage({ token, notify }: Props) {
                     token={token}
                     lessonId={l.id}
                     onChanged={() => afterChange("Savol o‘chirildi", false)}
+                    onExamFlagged={() => setExamTick((v) => v + 1)}
                   />
                 )}
               </div>
@@ -1197,18 +1211,111 @@ function MaterialList({
   );
 }
 
+/**
+ * ExamCoverage — how close each subject of the chosen grade is to a real exam.
+ *
+ * `flagged` counts the questions this admin marked as exam questions inside that
+ * subject; `ready` is computed by the very same paper builder the pupils use, so
+ * a green light here means an exam that can actually be sat (20 questions, with
+ * same-grade fillers when the subject alone is short).
+ */
+function ExamCoverage({
+  token,
+  gradeId,
+  tick,
+  onPickSubject,
+}: {
+  token: string;
+  gradeId: number;
+  tick: number;
+  onPickSubject: (subjectId: number) => void;
+}) {
+  const [rows, setRows] = useState<AdminExamCoverage[] | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    setRows(null);
+    setErr("");
+    api
+      .adminExamCoverage(token, gradeId)
+      .then((r) => alive && setRows(r))
+      .catch((e: unknown) => {
+        if (!alive) return;
+        setRows([]);
+        setErr(errText(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, gradeId, tick]);
+
+  return (
+    <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-indigo-500">
+        🎯 Majburiy imtihon holati
+      </h3>
+      <p className="mt-1 text-[11px] font-semibold text-indigo-700/80 leading-snug">
+        Imtihon 20 ta savoldan tuziladi. Fanda yetarli bo‘lmasa, qolganlari shu sinfning
+        boshqa fanlaridan olinadi. Savolni dars ostidagi «＋ Imtihon savoli» tugmasi bilan
+        belgilaysiz.
+      </p>
+
+      {err && <p className="mt-2 text-xs font-semibold text-rose-600">{err}</p>}
+      {rows === null && <p className="mt-2 text-xs text-slate-400">Hisoblanmoqda…</p>}
+      {rows !== null && rows.length === 0 && !err && (
+        <p className="mt-2 text-xs text-slate-500">Bu sinfda fan yo‘q.</p>
+      )}
+
+      <div className="mt-2 space-y-1.5">
+        {rows?.map((row) => (
+          <button
+            key={row.subject_id}
+            onClick={() => onPickSubject(row.subject_id)}
+            className="flex w-full items-center justify-between gap-2 rounded-lg border border-indigo-100 bg-white px-2.5 py-1.5 text-left hover:border-indigo-300"
+          >
+            <span className="min-w-0 flex-1 truncate text-xs font-bold text-slate-800">
+              {row.subject_name}
+            </span>
+            <span className="shrink-0 text-[11px] font-bold text-slate-500">
+              {row.flagged} / {row.exam_size} belgilangan
+            </span>
+            <span
+              className={
+                row.ready
+                  ? "shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-700"
+                  : "shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-700"
+              }
+            >
+              {row.ready
+                ? row.flagged >= row.exam_size
+                  ? "Imtihon ochiq"
+                  : `Ochiq · sinfdan ${row.exam_size - row.flagged} ta`
+                : "Savol yetishmaydi"}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function QuestionList({
   token,
   lessonId,
   onChanged,
+  onExamFlagged,
 }: {
   token: string;
   lessonId: number;
   onChanged: () => Promise<void> | void;
+  /** Called after a question joins/leaves the exam paper, so coverage refreshes. */
+  onExamFlagged?: () => void;
 }) {
   const [items, setItems] = useState<AdminQuestionDetail[] | null>(null);
   const [err, setErr] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [examBusy, setExamBusy] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -1238,12 +1345,36 @@ function QuestionList({
     }
   };
 
+  /** Only the admin decides which questions belong to the mandatory exam. */
+  const toggleExam = async (q: AdminQuestionDetail) => {
+    setExamBusy(q.id);
+    setErr("");
+    try {
+      const updated = await api.adminSetQuestionExam(token, q.id, !q.is_exam);
+      setItems((list) =>
+        (list ?? []).map((item) => (item.id === updated.id ? updated : item)),
+      );
+      onExamFlagged?.();
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setExamBusy(null);
+    }
+  };
+
+  const flaggedCount = (items ?? []).filter((q) => q.is_exam).length;
+
   return (
     <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50/40 p-3">
       {err && <p className="mb-2 text-xs font-semibold text-rose-600">{err}</p>}
       {items === null && <p className="text-xs text-slate-400">Yuklanmoqda…</p>}
       {items !== null && items.length === 0 && (
         <p className="text-center text-xs text-slate-500">Bu darsda savol yo‘q.</p>
+      )}
+      {items !== null && items.length > 0 && (
+        <p className="mb-2 text-[11px] font-bold text-indigo-600">
+          🎯 Imtihon savollari: {flaggedCount} / {items.length}
+        </p>
       )}
       <div className="space-y-2">
         {items?.map((q, qi) => (
@@ -1276,6 +1407,22 @@ function QuestionList({
                     </li>
                   ))}
             </ul>
+            <button
+              onClick={() => void toggleExam(q)}
+              disabled={examBusy === q.id}
+              className={
+                q.is_exam
+                  ? "mt-2 rounded-lg bg-indigo-600 px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50"
+                  : "mt-2 rounded-lg border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-bold text-indigo-600 hover:border-indigo-400 disabled:opacity-50"
+              }
+              title="Majburiy imtihon varaqasiga kiritish yoki chiqarish"
+            >
+              {examBusy === q.id
+                ? "Saqlanmoqda…"
+                : q.is_exam
+                  ? "✓ Imtihonda — olish uchun bosing"
+                  : "＋ Imtihon savoli qilish"}
+            </button>
           </div>
         ))}
       </div>

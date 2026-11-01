@@ -649,6 +649,7 @@ def exam_coverage(
                 grade_name=grade.name,
                 flagged=flagged,
                 ready=exams.paper_is_ready(exams.build_paper(db, grade, subject)),
+                exam_size=exams.EXAM_SIZE,
             )
         )
     return out

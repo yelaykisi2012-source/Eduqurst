@@ -6,9 +6,10 @@ import {
   IconSettings,
   IconStar,
   IconGraduationCap,
+  IconExam,
 } from "./ui/Icons";
 
-export type NavTab = "home" | "lessons" | "achievements" | "profile" | "admin";
+export type NavTab = "home" | "lessons" | "exams" | "achievements" | "profile" | "admin";
 
 interface NavbarProps {
   currentTab: NavTab;
@@ -32,6 +33,7 @@ export default function Navbar({
   const tabs = [
     { key: "home" as NavTab, label: "Bosh sahifa", icon: IconHome },
     { key: "lessons" as NavTab, label: "Fanlar", icon: IconBook },
+    { key: "exams" as NavTab, label: "Imtihon", icon: IconExam },
     { key: "achievements" as NavTab, label: "Yutuqlar", icon: IconTrophy },
     { key: "profile" as NavTab, label: "Profil", icon: IconUser },
     ...(isAdmin ? [{ key: "admin" as NavTab, label: "Admin", icon: IconSettings }] : []),
