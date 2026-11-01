@@ -10,9 +10,11 @@ export default defineConfig({
     port: 5173,
     // Local dev calls same-origin /api (see api.ts); proxy it to the live
     // backend so the browser never hits CORS for localhost:5173.
+    // Set VITE_PROXY_TARGET (e.g. http://127.0.0.1:8010) to point the dev server
+    // at a backend running on this machine instead.
     proxy: {
       "/api": {
-        target: "https://eduqurst.onrender.com",
+        target: process.env.VITE_PROXY_TARGET || "https://eduqurst.onrender.com",
         changeOrigin: true,
         secure: true,
       },
