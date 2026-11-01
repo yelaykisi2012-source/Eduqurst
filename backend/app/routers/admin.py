@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import exams
 from app.config import get_settings
 from app.db import get_db
 from app.models import (
@@ -33,6 +34,8 @@ from app.models import (
     User,
 )
 from app.schemas import (
+    AdminExamCoverageOut,
+    AdminExamFlagIn,
     AdminLessonCreate,
     AdminLessonOut,
     AdminLessonUpdate,
@@ -560,27 +563,95 @@ def list_questions(
     lesson = db.get(Lesson, lesson_id)
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Dars topilmadi")
-    result: list[AdminQuestionDetailOut] = []
-    for q in lesson.questions:
-        right_by_key = {o.pair_key: o.text for o in q.options if o.pair_key}
-        result.append(
-            AdminQuestionDetailOut(
-                id=q.id,
-                text=q.text,
-                kind=q.kind,
-                option_count=len(q.options),
-                correct_count=sum(1 for o in q.options if o.is_correct),
-                options=[
-                    AdminQuestionOptionOut(id=o.id, text=o.text, is_correct=o.is_correct)
-                    for o in q.options
-                ],
-                pairs=[
-                    AdminPairOut(left=p.text, right=right_by_key.get(p.pair_key, ""))
-                    for p in q.prompts
-                ],
+    return [_question_detail(q) for q in lesson.questions]
+
+
+def _question_detail(q: Question) -> AdminQuestionDetailOut:
+    right_by_key = {o.pair_key: o.text for o in q.options if o.pair_key}
+    return AdminQuestionDetailOut(
+        id=q.id,
+        text=q.text,
+        kind=q.kind,
+        option_count=len(q.options),
+        correct_count=sum(1 for o in q.options if o.is_correct),
+        is_exam=q.is_exam,
+        options=[
+            AdminQuestionOptionOut(id=o.id, text=o.text, is_correct=o.is_correct)
+            for o in q.options
+        ],
+        pairs=[
+            AdminPairOut(left=p.text, right=right_by_key.get(p.pair_key, ""))
+            for p in q.prompts
+        ],
+    )
+
+
+@router.patch("/questions/{question_id}/exam", response_model=AdminQuestionDetailOut)
+def set_question_exam(
+    question_id: int,
+    body: AdminExamFlagIn,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin),
+) -> AdminQuestionDetailOut:
+    """Mark / unmark one question as part of the mandatory exam.
+
+    Nothing is auto-picked: the exam paper is built only from questions an admin
+    flagged here, so the teacher stays in control of what the exam asks.
+    """
+    question = db.get(Question, question_id)
+    if question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Savol topilmadi")
+    question.is_exam = body.is_exam
+    db.commit()
+    db.refresh(question)
+    return _question_detail(question)
+
+
+@router.get("/exams", response_model=list[AdminExamCoverageOut])
+def exam_coverage(
+    grade_id: int | None = None,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin),
+) -> list[AdminExamCoverageOut]:
+    """Per subject: how many exam questions are flagged, and is the paper ready?
+
+    Readiness is asked from app/exams.build_paper itself (the same function the
+    pupil's paper comes from), so this screen can never claim a subject is ready
+    and then refuse to open the exam. Pass `grade_id` to keep it cheap — the
+    admin panel always works inside one grade.
+    """
+    stmt = (
+        select(Subject)
+        .join(Grade, Subject.grade_id == Grade.id)
+        .order_by(Grade.order_index.asc(), Subject.order_index.asc(), Subject.id.asc())
+    )
+    if grade_id is not None:
+        stmt = stmt.where(Subject.grade_id == grade_id)
+    out: list[AdminExamCoverageOut] = []
+    for subject in db.scalars(stmt).all():
+        grade = db.get(Grade, subject.grade_id)
+        if grade is None:  # pragma: no cover - defensive (FK)
+            continue
+        flagged = db.scalar(
+            select(func.count(Question.id))
+            .join(Lesson, Question.lesson_id == Lesson.id)
+            .where(
+                Lesson.subject_id == subject.id,
+                Lesson.is_published.is_(True),
+                Question.is_exam.is_(True),
+            )
+        ) or 0
+        out.append(
+            AdminExamCoverageOut(
+                subject_id=subject.id,
+                subject_name=subject.name,
+                grade_id=grade.id,
+                grade_name=grade.name,
+                flagged=flagged,
+                ready=exams.paper_is_ready(exams.build_paper(db, grade, subject)),
             )
         )
-    return result
+    return out
 
 
 @router.delete("/questions/{question_id}", status_code=204)

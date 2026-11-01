@@ -99,6 +99,9 @@ class CertificateOut(BaseModel):
     pupil_name: str
     score_percent: int
     stars: int
+    # "course" | "exam" + the 5-point mark the exam produced ("5", "4", "2.5").
+    issued_via: str = "course"
+    mark: str | None = None
     issued_at: datetime
     verify_url: str
 
@@ -122,6 +125,8 @@ class CertificateVerifyOut(BaseModel):
     subject_name: str
     score_percent: int
     stars: int
+    issued_via: str = "course"
+    mark: str | None = None
     issued_at: datetime
 
 
@@ -238,6 +243,8 @@ class AdminQuestionOut(BaseModel):
     kind: str
     option_count: int
     correct_count: int
+    # True = this question is part of the mandatory exam paper of its subject.
+    is_exam: bool = False
 
 
 class AdminQuestionOptionOut(BaseModel):
@@ -256,6 +263,23 @@ class AdminQuestionDetailOut(AdminQuestionOut):
 
     options: list[AdminQuestionOptionOut]
     pairs: list[AdminPairOut] = Field(default_factory=list)
+
+
+class AdminExamFlagIn(BaseModel):
+    """Admin marks a question in/out of the mandatory exam paper."""
+
+    is_exam: bool
+
+
+class AdminExamCoverageOut(BaseModel):
+    """How close a subject is to a ready exam paper (20 flagged questions)."""
+
+    subject_id: int
+    subject_name: str
+    grade_id: int
+    grade_name: str
+    flagged: int  # questions marked is_exam inside this subject
+    ready: bool  # at least EXAM_SIZE across subject + same-grade fillers
 
 
 # ---------- content ----------
@@ -373,6 +397,54 @@ class QuizSubmitResult(BaseModel):
     new_achievement_titles: list[str] = []
     duplicate: bool  # True if this idempotency_key was already processed
     # Wrong answers with the correct option + supportive hint ("Xatolarni ko'rish").
+    mistakes: list[MistakeOut] = []
+
+
+# ---------- mandatory exam (majburiy sertifikat) ----------
+class ExamCardOut(BaseModel):
+    """One subject's exam, as the pupil sees it in the list."""
+
+    subject_id: int
+    subject_name: str
+    emoji: str
+    total: int  # questions in the paper (0 when the exam is not configured)
+    available: bool  # False until the admin flags enough exam questions
+    locked_until: datetime | None  # set for 30 days after a failed sitting
+    best_score_percent: int | None  # best PASSED sitting, if any
+    best_mark: str | None
+    passed: bool
+    certificate_code: str | None
+
+
+class ExamPaperOut(BaseModel):
+    """The frozen paper. Correct answers are never included."""
+
+    attempt_id: int
+    subject_id: int
+    subject_name: str
+    total: int
+    pass_percent: int
+    lock_days: int
+    questions: list[QuizQuestionOut]
+
+
+class ExamSubmitRequest(BaseModel):
+    attempt_id: int
+    answers: list[AnswerIn]
+
+
+class ExamResultOut(BaseModel):
+    attempt_id: int
+    total_count: int
+    correct_count: int
+    score_percent: int
+    mark: str  # 5-point scale: "5" | "4" | "2.5"
+    passed: bool
+    stars_earned: int
+    stars_total: int
+    locked_until: datetime | None
+    certificate: CertificateOut | None = None
+    message_uz: str
     mistakes: list[MistakeOut] = []
 
 

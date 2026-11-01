@@ -18,6 +18,7 @@ from app.routers import (
     bot_internal,
     certificates,
     content,
+    exams,
     leaderboard,
     me,
     quiz,
@@ -45,6 +46,7 @@ app.include_router(quiz.router)
 app.include_router(me.router)
 app.include_router(leaderboard.router)
 app.include_router(certificates.router)
+app.include_router(exams.router)
 app.include_router(bot_internal.router)
 app.include_router(admin.router)
 

@@ -20,7 +20,7 @@ from app.security import get_current_user
 router = APIRouter(prefix="/api", tags=["certificates"])
 
 
-def _out(cert: Certificate) -> CertificateOut:
+def to_out(cert: Certificate) -> CertificateOut:
     return CertificateOut(
         code=cert.code,
         subject_id=cert.subject_id,
@@ -30,6 +30,8 @@ def _out(cert: Certificate) -> CertificateOut:
         score_percent=cert.score_percent,
         stars=cert.stars,
         issued_at=cert.issued_at,
+        issued_via=cert.issued_via,
+        mark=cert.mark,
         verify_url=certs.verify_url(cert.code),
     )
 
@@ -44,7 +46,7 @@ def my_certificates(
         .where(Certificate.user_id == user.id)
         .order_by(Certificate.issued_at.desc())
     ).all()
-    return [_out(cert) for cert in rows]
+    return [to_out(cert) for cert in rows]
 
 
 @router.get("/certificates/eligible", response_model=list[EligibleCertificateOut])
@@ -77,7 +79,7 @@ def eligible_certificates(
                 emoji=subject.emoji,
                 total_lessons=finished["total_lessons"],
                 score_percent=cert.score_percent if cert else finished["score_percent"],
-                certificate=_out(cert) if cert else None,
+                certificate=to_out(cert) if cert else None,
             )
         )
     return result
@@ -159,4 +161,6 @@ def verify_certificate(
         score_percent=cert.score_percent,
         stars=cert.stars,
         issued_at=cert.issued_at,
+        issued_via=cert.issued_via,
+        mark=cert.mark,
     )

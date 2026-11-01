@@ -23,6 +23,7 @@ from app.models import (
 REASON_LESSON_VIEWED = "lesson_viewed"
 REASON_QUIZ_PASS = "quiz_pass"
 REASON_ACHIEVEMENT = "achievement"
+REASON_EXAM_PASS = "exam_pass"  # mandatory subject exam (app/routers/exams.py)
 LESSON_VIEWED_STARS = 2
 
 

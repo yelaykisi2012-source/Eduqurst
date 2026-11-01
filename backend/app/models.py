@@ -5,6 +5,7 @@ Relationship map:
   Grade 1 ─< Subject ─< Lesson ─< Question ─< AnswerOption
                      Lesson ─< LessonMaterial
   User ─< QuizAttempt >— Lesson
+  User ─< ExamAttempt >— Subject       (mandatory exam: 20 admin-picked questions)
   User ─< LessonProgress >— Lesson      (unlock/revisit state)
   User ─< StarLedger                    (every star grant is recorded once)
   User ─< UserAchievement >— Achievement
@@ -15,6 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     Date,
@@ -176,6 +178,12 @@ class Question(Base):
     kind: Mapped[str] = mapped_column(String(16), default="single")
     image_url: Mapped[str | None] = mapped_column(String(512))
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+    # Admin-marked "imtihon savoli": only these questions build the mandatory
+    # final exam of a subject (see app/exams.py). Nothing is auto-picked, so the
+    # teacher stays in control of what the exam asks.
+    is_exam: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", index=True
+    )
 
     lesson: Mapped[Lesson] = relationship(back_populates="questions")
     options: Mapped[list[AnswerOption]] = relationship(
@@ -257,6 +265,45 @@ class QuizAnswer(Base):
     is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class ExamAttempt(Base):
+    """One sitting of the mandatory subject exam (20 admin-picked questions).
+
+    Unlike the lesson quiz, the paper has to survive between "open exam" and
+    "submit", so the chosen question ids are frozen here. `answers` stores the
+    graded result per question (JSON) — that is what the certificate and the
+    mistake review are rebuilt from later.
+
+    A failed sitting sets `locked_until`: the pupil may not sit this exam again
+    for 30 days (the rule the teacher asked for: below 90% = not passed,
+    certificate postponed by a month).
+    """
+
+    __tablename__ = "exam_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), index=True)
+    question_ids: Mapped[list] = mapped_column(JSON, default=list)
+    answers: Mapped[list] = mapped_column(JSON, default=list)
+    total_count: Mapped[int] = mapped_column(Integer, default=0)
+    correct_count: Mapped[int] = mapped_column(Integer, default=0)
+    score_percent: Mapped[int] = mapped_column(Integer, default=0)
+    # 5-point scale the teacher uses: "2.5" | "4" | "5" (None until submitted).
+    mark: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    submitted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped[User] = relationship()
+    subject: Mapped[Subject] = relationship()
+
+
 class LessonProgress(Base):
     """Per-user state of a lesson: viewed? passed? best score?"""
 
@@ -320,10 +367,13 @@ class UserAchievement(Base):
 
 
 class Certificate(Base):
-    """An issued course-completion certificate (one per pupil + subject).
+    """An issued certificate (one per pupil + subject).
 
-    Names are snapshotted at issue time so later content renames do not change
-    an already issued document. `code` is the unguessable public verify key.
+    Two routes reach the same document: finishing every lesson of the course
+    (`issued_via="course"`) or passing the mandatory exam (`issued_via="exam"`,
+    which also carries the 5-point `mark`). Names are snapshotted at issue time
+    so later content renames do not change an already issued document. `code` is
+    the unguessable public verify key.
     """
 
     __tablename__ = "certificates"
@@ -338,6 +388,11 @@ class Certificate(Base):
     subject_name: Mapped[str] = mapped_column(String(128))
     score_percent: Mapped[int] = mapped_column(Integer, default=0)
     stars: Mapped[int] = mapped_column(Integer, default=0)
+    # "course" | "exam"; mark is only filled by the exam route ("5", "4", "2.5").
+    issued_via: Mapped[str] = mapped_column(
+        String(8), default="course", server_default="course"
+    )
+    mark: Mapped[str | None] = mapped_column(String(4), nullable=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

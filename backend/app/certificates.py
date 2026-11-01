@@ -67,15 +67,33 @@ def completed_course(db: Session, user_id: int, subject: Subject) -> dict | None
 
 
 def get_or_issue(
-    db: Session, user: User, grade: Grade, subject: Subject, result: dict
+    db: Session,
+    user: User,
+    grade: Grade,
+    subject: Subject,
+    result: dict,
+    *,
+    mark: str | None = None,
+    issued_via: str = "course",
 ) -> Certificate:
-    """Return the existing certificate or issue a new one (idempotent)."""
+    """Return the existing certificate or issue a new one (idempotent).
+
+    The mandatory exam is the authoritative route: passing it replaces the
+    course-completion wording/score with the exam result, but the certificate
+    `code` never changes, so an already printed QR link keeps verifying.
+    """
     cert = db.scalar(
         select(Certificate).where(
             Certificate.user_id == user.id, Certificate.subject_id == subject.id
         )
     )
     if cert is not None:
+        if issued_via == "exam" and cert.issued_via != "exam":
+            cert.score_percent = result["score_percent"]
+            cert.mark = mark
+            cert.issued_via = "exam"
+            cert.stars = gamification.stars_total(db, user.id)
+            db.commit()
         return cert
 
     cert = Certificate(
@@ -87,6 +105,8 @@ def get_or_issue(
         subject_name=subject.name,
         score_percent=result["score_percent"],
         stars=gamification.stars_total(db, user.id),
+        mark=mark,
+        issued_via=issued_via,
     )
     db.add(cert)
     try:
@@ -253,7 +273,9 @@ def build_pdf(cert: Certificate) -> bytes:
     _centered(c, "SERTIFIKAT", page_w / 2, page_h - 150, "Times-Bold", 38, GOLD, 4)
     _centered(
         c,
-        "Kursni muvaffaqiyatli tamomlagani uchun",
+        "Majburiy imtihon natijasi"
+        if cert.issued_via == "exam"
+        else "Kursni muvaffaqiyatli tamomlagani uchun",
         page_w / 2,
         page_h - 174,
         "Times-Italic",
@@ -275,10 +297,16 @@ def build_pdf(cert: Certificate) -> bytes:
     )
 
     # Description
-    description = (
-        f"{cert.grade_name} o‘quvchisi “{cert.subject_name}” kursini muvaffaqiyatli "
-        "yakunlaganligi uchun ushbu sertifikat taqdim etiladi."
-    )
+    if cert.issued_via == "exam":
+        description = (
+            f"{cert.grade_name} o‘quvchisi “{cert.subject_name}” fanidan majburiy "
+            "imtihonni muvaffaqiyatli topshirgani uchun ushbu sertifikat taqdim etiladi."
+        )
+    else:
+        description = (
+            f"{cert.grade_name} o‘quvchisi “{cert.subject_name}” kursini muvaffaqiyatli "
+            "yakunlaganligi uchun ushbu sertifikat taqdim etiladi."
+        )
     description_size = 11.0
     if stringWidth(description, "Helvetica", description_size) > 680:
         description_size = _fit(c, description, "Helvetica", 10.5, 680)
@@ -301,7 +329,13 @@ def build_pdf(cert: Certificate) -> bytes:
     top = 205
     _metric_box(c, left, top, box_w, box_h, "Kurs nomi", cert.subject_name)
     _metric_box(
-        c, left + box_w + gap, top, box_w, box_h, "Natija", f"{cert.score_percent}%"
+        c,
+        left + box_w + gap,
+        top,
+        box_w,
+        box_h,
+        "Natija",
+        f"{cert.score_percent}% · {cert.mark} baho" if cert.mark else f"{cert.score_percent}%",
     )
     _metric_box(
         c,
@@ -355,7 +389,15 @@ def verify_page(cert: Certificate) -> str:
         ("O‘quvchi", cert.pupil_name),
         ("Sinf", cert.grade_name),
         ("Kurs", cert.subject_name),
+        (
+            "Manba",
+            "Majburiy imtihon" if cert.issued_via == "exam" else "Kursni tugatish",
+        ),
         ("Natija", f"{cert.score_percent}%"),
+    ]
+    if cert.mark:
+        rows.append(("Baho", cert.mark))
+    rows += [
         ("Yulduzlar", f"{cert.stars}"),
         ("Berilgan sana", issued),
         ("Sertifikat kodi", cert.code),
