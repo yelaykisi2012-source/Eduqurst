@@ -42,6 +42,30 @@ class BackendBusiness(Exception):
         self.message = message
 
 
+async def _business_error(
+    resp: aiohttp.ClientResponse, *, rewrite_422: bool = True
+) -> BackendBusiness:
+    """Turn a 4xx/5xx response into BackendBusiness, keeping the server's reason.
+
+    rewrite_422=False is used where 422 is a deliberate, pupil-readable
+    rejection (an unsuitable picture) — the generic text would hide it.
+    """
+    code, msg = "error", f"Server xatosi (HTTP {resp.status})"
+    try:
+        data = await resp.json()
+        detail = data.get("detail") if isinstance(data, dict) else None
+        if isinstance(detail, str):
+            msg = detail
+        elif isinstance(detail, dict):
+            code = detail.get("error", "error")
+            msg = detail.get("message_uz") or msg
+    except Exception:
+        pass
+    if resp.status == 422 and rewrite_422:
+        msg = "Maʼlumot formati yaroqsiz — qayta tekshirib yuboring."
+    return BackendBusiness(resp.status, code, msg)
+
+
 async def _call(
     method: str,
     path: str,
@@ -62,20 +86,7 @@ async def _call(
                     if resp.status == 204:
                         return None
                     return await resp.json()
-                code, msg = "error", f"Server xatosi (HTTP {resp.status})"
-                try:
-                    data = await resp.json()
-                    detail = data.get("detail") if isinstance(data, dict) else None
-                    if isinstance(detail, str):
-                        msg = detail
-                    elif isinstance(detail, dict):
-                        code = detail.get("error", "error")
-                        msg = detail.get("message_uz") or msg
-                except Exception:
-                    pass
-                if resp.status == 422:
-                    msg = "Maʼlumot formati yaroqsiz — qayta tekshirib yuboring."
-                raise BackendBusiness(resp.status, code, msg)
+                raise await _business_error(resp)
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
         raise BackendOffline(str(e)) from e
 
@@ -139,6 +150,36 @@ async def submit_quiz(telegram_id: int, lesson_id: int, idempotency_key: str, an
 
 async def progress(telegram_id: int) -> dict[str, Any]:
     return await _call("GET", "/pupil/progress", params={"telegram_id": telegram_id})
+
+
+async def set_avatar(
+    telegram_id: int,
+    raw: bytes,
+    *,
+    filename: str = "telegram_rasmi.jpg",
+    content_type: str = "image/jpeg",
+) -> dict[str, Any]:
+    """Send the pupil's Telegram picture to the backend as a multipart upload.
+
+    The route takes `file: UploadFile`, so it cannot go through _call()'s JSON
+    path. rewrite_422=False: a rejected picture comes back with its own Uzbek
+    reason ("Rasm juda katta…") that the pupil must actually see.
+    """
+    if not config.API_URL or not config.BOT_TOKEN:
+        raise BackendOffline("API_URL yoki BOT_TOKEN sozlanmagan (bot/.env)")
+    form = aiohttp.FormData()
+    form.add_field("file", raw, filename=filename, content_type=content_type)
+    url = f"{config.API_URL}/api/internal/pupils/{telegram_id}/avatar"
+    try:
+        async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
+            async with session.post(
+                url, data=form, headers={"X-Bot-Token": config.BOT_TOKEN}
+            ) as resp:
+                if resp.status < 400:
+                    return await resp.json()
+                raise await _business_error(resp, rewrite_422=False)
+    except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
+        raise BackendOffline(str(e)) from e
 
 
 # ---------- parent link + weekly digest ----------

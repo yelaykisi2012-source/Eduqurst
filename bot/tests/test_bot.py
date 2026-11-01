@@ -17,6 +17,7 @@ What is covered:
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 import sys
@@ -38,6 +39,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aiogram import Bot  # noqa: E402
 from aiogram.exceptions import TelegramForbiddenError  # noqa: E402
 from aiogram.types import CallbackQuery, Chat, Document, Message, User, Video  # noqa: E402
+
+import aiohttp  # noqa: E402
 
 import backend_client  # noqa: E402
 import weekly_digest  # noqa: E402
@@ -118,6 +121,7 @@ def all_buttons():
         kb.quiz_result_keyboard(False, 10),
         kb.quiz_start_keyboard(10),
         kb.menu_only_keyboard(),
+        kb.profile_keyboard(),
         kb.parent_panel_keyboard(linked=True),
         kb.parent_panel_keyboard(linked=False),
         kb.admin_menu_keyboard(),
@@ -233,6 +237,7 @@ class HandlerCoverageTests(unittest.TestCase):
             "nav:menu": "cb_menu",
             "nav:subjects": "cb_subjects",
             "nav:profile": "cb_profile",
+            "nav:avatar": "cb_avatar",
             "nav:ach": "cb_achievements",
             "nav:admin": "cb_admin_menu",
         }
@@ -500,6 +505,207 @@ class CallbackPupilIdTests(unittest.TestCase):
             asyncio.run(profile_handlers.cb_achievements(cb))
         mocked.assert_awaited_once_with(self.PUPIL_ID)
         self.assertTrue(cb.message.answers)
+
+
+class FakeProfilePhotoBot:
+    """Stands in for aiogram's Bot — the three Telegram calls, no network."""
+
+    def __init__(self, photos=None, file_path="photos/file_2.jpg", payload=b"JPEGDATA"):
+        if photos is None:
+            # Telegram returns one entry per photo, sizes small → large.
+            photos = [[SimpleNamespace(file_id="id_small"), SimpleNamespace(file_id="id_big")]]
+        self.photos = photos
+        self.file_path = file_path
+        self.payload = payload
+        self.queried_user = None
+        self.asked_file_id = None
+        self.download_error = None
+
+    async def get_user_profile_photos(self, user_id, limit=1):
+        self.queried_user = user_id
+        return SimpleNamespace(total_count=len(self.photos), photos=self.photos)
+
+    async def get_file(self, file_id):
+        self.asked_file_id = file_id
+        return SimpleNamespace(file_id=file_id, file_path=self.file_path)
+
+    async def download_file(self, file_path):
+        if self.download_error is not None:
+            raise self.download_error
+        return io.BytesIO(self.payload)
+
+
+class AvatarSyncTests(unittest.TestCase):
+    """«🖼 Rasmimni qo‘yish» — the pupil's Telegram photo onto their profile."""
+
+    PUPIL_ID = 999000111
+
+    def _callback(self):
+        target = SimpleNamespace(
+            from_user=User(id=BOT_ACCOUNT_ID, is_bot=True, first_name="EduQuest"),
+            chat=Chat(id=self.PUPIL_ID, type="private"),
+            answers=[],
+        )
+
+        async def answer(text, reply_markup=None, **kwargs):
+            target.answers.append(text)
+
+        target.answer = answer
+        return SimpleNamespace(
+            data="nav:avatar",
+            from_user=User(id=self.PUPIL_ID, is_bot=False, first_name="Pupil"),
+            message=target,
+            answer=AsyncMock(),
+        )
+
+    def _press(self, bot, side_effect=None, return_value=None):
+        cb = self._callback()
+        mocked = AsyncMock(side_effect=side_effect, return_value=return_value)
+        with patch("backend_client.set_avatar", new=mocked):
+            asyncio.run(profile_handlers.cb_avatar(cb, bot))
+        return cb, mocked
+
+    def test_pupil_id_is_used_not_the_bots(self):
+        """The old live bug class: a callback's message belongs to the BOT."""
+        bot = FakeProfilePhotoBot()
+        _, set_avatar = self._press(
+            bot, return_value={"avatar_url": "/api/avatars/1/x.png", "width": 256}
+        )
+        self.assertEqual(bot.queried_user, self.PUPIL_ID)
+        self.assertEqual(set_avatar.await_args.args[0], self.PUPIL_ID)
+
+    def test_largest_size_is_downloaded(self):
+        bot = FakeProfilePhotoBot()
+        self._press(bot, return_value={"width": 256})
+        self.assertEqual(bot.asked_file_id, "id_big")
+
+    def test_success_tells_where_the_photo_shows_up(self):
+        cb, _ = self._press(FakeProfilePhotoBot(), return_value={"width": 256})
+        self.assertIn("qo‘yildi", cb.message.answers[-1])
+        self.assertIn("256 px", cb.message.answers[-1])
+        self.assertIn("Mini App", cb.message.answers[-1])
+
+    def test_no_telegram_photo_says_so_and_uploads_nothing(self):
+        bot = FakeProfilePhotoBot(photos=[])
+        cb, set_avatar = self._press(bot)
+        set_avatar.assert_not_awaited()
+        self.assertIn("📷", cb.message.answers[-1])
+        self.assertIn("yo‘q", cb.message.answers[-1])
+
+    def test_backend_rejection_reason_reaches_the_pupil(self):
+        error = backend_client.BackendBusiness(
+            422, "avatar_rejected", "Rasm juda katta — 5 MB dan kichikroq fayl tanlang."
+        )
+        cb, _ = self._press(FakeProfilePhotoBot(), side_effect=error)
+        self.assertIn("Rasm juda katta", cb.message.answers[-1])
+        self.assertNotIn("formati yaroqsiz", cb.message.answers[-1])
+
+    def test_unregistered_pupil_is_sent_to_start(self):
+        error = backend_client.BackendBusiness(404, "pupil_not_found", "x")
+        cb, _ = self._press(FakeProfilePhotoBot(), side_effect=error)
+        self.assertIn("/start", cb.message.answers[-1])
+
+    def test_offline_backend_is_admitted_not_hidden(self):
+        error = backend_client.BackendOffline("connection refused")
+        cb, _ = self._press(FakeProfilePhotoBot(), side_effect=error)
+        self.assertIn("🔌", cb.message.answers[-1])
+
+    def test_download_failure_never_claims_success(self):
+        bot = FakeProfilePhotoBot()
+        bot.download_error = ValueError("telegram said no")
+        cb, set_avatar = self._press(bot)
+        set_avatar.assert_not_awaited()
+        self.assertTrue(cb.message.answers[-1].startswith("⚠️"))
+
+    def test_missing_file_path_never_claims_success(self):
+        bot = FakeProfilePhotoBot(file_path=None)
+        cb, set_avatar = self._press(bot)
+        set_avatar.assert_not_awaited()
+        self.assertTrue(cb.message.answers[-1].startswith("⚠️"))
+
+    def test_empty_bytes_never_claims_success(self):
+        bot = FakeProfilePhotoBot(payload=b"")
+        cb, set_avatar = self._press(bot)
+        set_avatar.assert_not_awaited()
+        self.assertTrue(cb.message.answers[-1].startswith("⚠️"))
+
+
+class SetAvatarClientTests(unittest.TestCase):
+    """The multipart POST itself: right URL, right auth, honest error text."""
+
+    def _session(self, status, payload, calls):
+        class _Response:
+            def __init__(self):
+                self.status = status
+
+            async def json(self):
+                if payload is None:
+                    raise ValueError("no json body")
+                return payload
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        response = _Response()
+
+        class _Session:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def post(self, url, **kwargs):
+                calls.append((url, kwargs))
+                return response
+
+            def request(self, method, url, **kwargs):
+                calls.append((url, kwargs))
+                return response
+
+        return _Session
+
+    def test_posts_multipart_to_the_internal_avatar_route(self):
+        calls = []
+        with patch("backend_client.aiohttp.ClientSession",
+                   new=self._session(200, {"avatar_url": "/api/avatars/7/x.png", "width": 256}, calls)):
+            out = asyncio.run(
+                backend_client.set_avatar(7, b"JPEGDATA", filename="file_2.jpg")
+            )
+        url, kwargs = calls[0]
+        self.assertEqual(url, f"{backend_client.config.API_URL}/api/internal/pupils/7/avatar")
+        self.assertEqual(kwargs["headers"], {"X-Bot-Token": backend_client.config.BOT_TOKEN})
+        self.assertIsInstance(kwargs["data"], aiohttp.FormData)
+        self.assertTrue(kwargs["data"].is_multipart)
+        self.assertEqual(out["width"], 256)
+
+    def test_422_keeps_the_servers_uzbek_reason(self):
+        """The generic 422 rewrite would hide 'Rasm juda katta' from the pupil."""
+        calls = []
+        body = {"detail": {"error": "avatar_rejected",
+                           "message_uz": "Rasm juda katta — 5 MB dan kichikroq fayl tanlang."}}
+        with patch("backend_client.aiohttp.ClientSession",
+                   new=self._session(422, body, calls)):
+            with self.assertRaises(backend_client.BackendBusiness) as caught:
+                asyncio.run(backend_client.set_avatar(7, b"huge"))
+        self.assertEqual(caught.exception.code, "avatar_rejected")
+        self.assertIn("Rasm juda katta", caught.exception.message)
+
+    def test_json_calls_still_get_the_generic_422_text(self):
+        """Regression: the rewrite stays for every other internal endpoint."""
+        calls = []
+        body = {"detail": "Unprocessable Entity"}
+        with patch("backend_client.aiohttp.ClientSession",
+                   new=self._session(422, body, calls)):
+            with self.assertRaises(backend_client.BackendBusiness) as caught:
+                asyncio.run(backend_client._call("GET", "/pupil/progress", params={"telegram_id": 7}))
+        self.assertIn("formati yaroqsiz", caught.exception.message)
 
 
 class QuizMistakeReviewTests(unittest.TestCase):

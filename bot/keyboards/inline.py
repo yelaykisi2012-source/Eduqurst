@@ -6,13 +6,14 @@ payload (WebAppInfo) instead of `callback_data`/`url`. When the pupil
 taps it, Telegram opens your HTTPS-hosted React app inside Telegram.
 
 Callback data conventions (keep short, Telegram limit is 64 bytes):
-  nav:<page>          — menu navigation (subjects / profile / ach / admin)
+  nav:<page>          — menu navigation (subjects / profile / avatar / ach / admin)
   gr:<grade_id>       — pupil picks a grade
   su:<subject_id>     — open a subject's lesson ladder
   le:<lesson_id>      — open a lesson
   vw:<lesson_id>      — mark lesson as read
   qz:<lesson_id>      — start / restart the quiz
   qa:<q_index>:<opt_index> — answer for question q_index with option opt_index
+  nav:avatar          — copy the pupil's Telegram profile photo
   adm:*               — admin flows (see admin.py)
 """
 from aiogram.types import (
@@ -185,6 +186,20 @@ def quiz_start_keyboard(lesson_id: int) -> InlineKeyboardMarkup:
 
 def menu_only_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[_btn("🏠 Bosh menyu", "nav:menu")]])
+
+
+def profile_keyboard() -> InlineKeyboardMarkup:
+    """Profile screen: copy the Telegram picture, then go home.
+
+    Telegram lets a bot take the user's own profile photo (getUserProfilePhotos),
+    so "Rasmimni qo'yish" is a real action, not a promise.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn("🖼 Rasmimni qo‘yish", "nav:avatar")],
+            [_btn("🏠 Bosh menyu", "nav:menu")],
+        ]
+    )
 
 
 def admin_menu_keyboard() -> InlineKeyboardMarkup:

@@ -1,20 +1,26 @@
 """
-handlers/profile.py — ⭐ Profilim and 🏆 Yutuqlar inside the bot.
+handlers/profile.py — ⭐ Profilim, 🏆 Yutuqlar va 🖼 profil rasmi (bot ichida).
 
 Both read the SAME progress endpoint the Mini App uses, so stars,
 counts and medals never diverge between the two screens.
+
+The avatar button copies the pupil's OWN Telegram profile photo onto their
+EduQuest profile: Telegram hands the file over (getUserProfilePhotos), the bot
+downloads it into memory (no temp files) and the backend normalises + stores it
+through exactly the same path as a Mini App upload.
 """
 from __future__ import annotations
 
 import html
 import logging
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 import backend_client
-from keyboards.inline import menu_only_keyboard
+from keyboards.inline import menu_only_keyboard, profile_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router(name="profile")
@@ -69,7 +75,7 @@ async def show_profile(target: Message, tg_id: int) -> None:
                 f"{s['passed_lessons']}/{s['total_lessons']}"
             )
     lines.append("\n💡 Sinfni o‘zgartirish Mini App’dagi Profil bo‘limida (progress o‘chmaydi).")
-    await target.answer("\n".join(lines), reply_markup=menu_only_keyboard())
+    await target.answer("\n".join(lines), reply_markup=profile_keyboard())
 
 
 async def show_achievements(target: Message, tg_id: int) -> None:
@@ -89,6 +95,81 @@ async def show_achievements(target: Message, tg_id: int) -> None:
 async def cb_profile(cb: CallbackQuery) -> None:
     await cb.answer()  # stop the spinner immediately
     await show_profile(cb.message, cb.from_user.id)
+
+
+async def sync_avatar(target: Message, tg_id: int, bot: Bot) -> None:
+    """Copy the pupil's own Telegram profile photo onto their EduQuest profile.
+
+    Every branch answers with a real reason — a silently failing button is the
+    one thing a 12-year-old cannot recover from.
+    """
+    try:
+        photos = (await bot.get_user_profile_photos(user_id=tg_id, limit=1)).photos
+    except TelegramAPIError as e:
+        logger.warning("getUserProfilePhotos: %s", e)
+        photos = []
+    if not photos:
+        await target.answer(
+            "📷 Telegram’da profil rasmingiz yo‘q.\n\n"
+            "Telegram sozlamalarida rasm qo‘ying, keyin shu tugmani qayta bosing. "
+            "Yoki Mini App’ning Profil bo‘limidan rasm yuklang.",
+            reply_markup=profile_keyboard(),
+        )
+        return
+
+    sizes = photos[0]  # Telegram kichikdan kattaga beradi — eng tiniqini olamiz
+    file = None
+    raw = b""
+    try:
+        file = await bot.get_file(file_id=sizes[-1].file_id)
+        if file.file_path:  # None = fayl hali Telegram serverida tayyor emas
+            stream = await bot.download_file(file.file_path)
+            raw = stream.read() if stream is not None else b""
+    except (TelegramAPIError, OSError, ValueError) as e:
+        logger.warning("Avatar yuklab bo‘lmadi: %s", e)
+        await target.answer(
+            "⚠️ Rasmini Telegram’dan yuklab bo‘lmadi — birozdan so‘ng qayta urinib ko‘ring.",
+            reply_markup=profile_keyboard(),
+        )
+        return
+
+    if not raw:
+        await target.answer(
+            "⚠️ Telegram rasmini berolmadi — qayta urinib ko‘ring.",
+            reply_markup=profile_keyboard(),
+        )
+        return
+
+    name = (file.file_path or "").rsplit("/", 1)[-1] or "telegram_rasmi.jpg"
+    try:
+        out = await backend_client.set_avatar(tg_id, raw, filename=name)
+    except backend_client.BackendOffline:
+        await target.answer(
+            "🔌 Server hozir javob bermayapti — birozdan so‘ng qayta urinib ko‘ring.",
+            reply_markup=profile_keyboard(),
+        )
+    except backend_client.BackendBusiness as e:
+        if e.code == "pupil_not_found":
+            await target.answer("👋 Avval /start yuboring — shundan keyin profilingiz bo‘ladi.")
+        else:
+            # e.message is the backend's own Uzbek reason (e.g. "Rasm juda katta…")
+            await target.answer(f"⚠️ {esc(e.message)}", reply_markup=profile_keyboard())
+    else:
+        width = out.get("width")
+        size = f" ({width} px)" if width else ""
+        await target.answer(
+            f"✅ Profil rasmingiz qo‘yildi{size}!\n\n"
+            "📲 Endi u Mini App profilangizda va sinf chatidagi xabarlaringiz yonida ko‘rinadi.\n"
+            "🔁 Boshqa rasm xohlasangiz — Telegram rasmingizni almashtiring va tugmani qayta bosing.",
+            reply_markup=profile_keyboard(),
+        )
+
+
+@router.callback_query(F.data == "nav:avatar")
+async def cb_avatar(cb: CallbackQuery, bot: Bot) -> None:
+    await cb.answer()  # stop the spinner immediately
+    # cb.from_user = the pupil; cb.message.from_user would be the BOT itself.
+    await sync_avatar(cb.message, cb.from_user.id, bot)
 
 
 @router.callback_query(F.data == "nav:ach")
