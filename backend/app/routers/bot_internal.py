@@ -15,7 +15,16 @@ from __future__ import annotations
 import hmac
 from datetime import date
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -25,14 +34,17 @@ from app.db import get_db
 from app.grades import user_grade
 from app.models import LessonMaterial, LessonProgress, User
 from app.routers import admin as admin_api
+from app.routers import avatars as avatar_api
 from app.routers import content as content_api
 from app.routers import me as me_api
 from app.routers import quiz as quiz_api
+from app.security import is_admin_user
 from app.schemas import (
     AdminLessonOut,
     AdminMaterialOut,
     AdminQuestionOut,
     AdminSubjectOut,
+    AvatarOut,
     BotAdminLessonCreate,
     BotAdminMaterialCreate,
     BotAdminQuestionCreate,
@@ -154,6 +166,28 @@ def upsert_pupil(body: BotPupilUpsert, db: Session = Depends(get_db)) -> BotSumm
     return _summary(db, user)
 
 
+@router.post(
+    "/pupils/{telegram_id}/avatar",
+    response_model=AvatarOut,
+    dependencies=[Depends(require_bot_token)],
+)
+async def internal_set_avatar(
+    telegram_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> AvatarOut:
+    """Push the pupil's Telegram profile photo onto their EduQuest profile.
+
+    Telegram already proved who the bot is talking to (the id comes from a real
+    update), and only the bot knowing BOT_TOKEN may call this. The bytes go
+    through the SAME normalise() path as a Mini App upload, so a Telegram photo
+    is stored no differently — downscaled, EXIF-free, behind a fresh slug.
+    """
+    user = _pupil(db, telegram_id)
+    raw = await avatar_api.read_upload(file)
+    return avatar_api.store_upload(db, user.id, raw, source="telegram")
+
+
 @router.get("/grades", response_model=list[GradeOut], dependencies=[Depends(require_bot_token)])
 def internal_grades(telegram_id: int = Query(ge=1), db: Session = Depends(get_db)):
     return me_api.list_grades(db=db, user=_pupil(db, telegram_id))
@@ -230,7 +264,7 @@ def internal_progress(telegram_id: int = Query(ge=1), db: Session = Depends(get_
 
 def _internal_admin(db: Session, telegram_id: int) -> User:
     user = _pupil(db, telegram_id)
-    if user.telegram_id not in get_settings().admin_id_set:
+    if not is_admin_user(user):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail={"error": "not_admin", "message_uz": "Siz admin emassiz."},

@@ -10,6 +10,9 @@ python-dotenv>=1.0
 python-multipart>=0.0.12
 reportlab>=4.2
 qrcode[pil]>=8.0
+# Profile pictures are re-encoded server-side (downscale + strip EXIF).
+# qrcode[pil] already pulls Pillow in, but avatars depend on it directly.
+Pillow>=10.4
 
 # tests
 pytest>=8.0

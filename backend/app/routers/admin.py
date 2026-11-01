@@ -51,14 +51,13 @@ from app.schemas import (
     AdminSubjectUpdate,
     GradeOverview,
 )
-from app.security import get_current_user
+from app.security import get_current_user, is_admin_user
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 def get_admin(user: User = Depends(get_current_user)) -> User:
-    ids = get_settings().admin_id_set
-    if user.telegram_id not in ids:
+    if not is_admin_user(user):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail={"error": "not_admin", "message_uz": "Siz admin emassiz."},

@@ -15,8 +15,10 @@ from app.config import get_settings
 from app.routers import (
     admin,
     auth,
+    avatars,
     bot_internal,
     certificates,
+    chat,
     content,
     exams,
     leaderboard,
@@ -44,6 +46,8 @@ app.include_router(auth.router)
 app.include_router(content.router)
 app.include_router(quiz.router)
 app.include_router(me.router)
+app.include_router(avatars.router)
+app.include_router(chat.router)
 app.include_router(leaderboard.router)
 app.include_router(certificates.router)
 app.include_router(exams.router)

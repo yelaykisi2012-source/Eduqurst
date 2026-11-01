@@ -22,7 +22,9 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -407,3 +409,89 @@ class AdminAccount(Base):
     role: Mapped[str] = mapped_column(String(16), default="content_admin")  # superadmin|content_admin
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserAvatar(Base):
+    """A pupil's profile picture, stored as small re-encoded bytes.
+
+    Why a separate table: every authenticated request loads the User row, and
+    kilobytes of image data must not ride along with it.
+
+    Why bytes instead of a Telegram file_id (how lesson files are stored):
+    a chat list shows dozens of avatars at once, and relaying each one through
+    the Telegram API would be slow and rate-limited. A 256px JPEG is ~15 KB.
+
+    `slug` is the privacy mechanism. The image route is public (an `<img>` tag
+    cannot send a JWT), but it is only reachable as
+    /api/avatars/{user_id}/{slug} — a fresh random slug per upload that cannot
+    be enumerated, exactly like a certificate code. Re-posting a photo rotates
+    the slug, so an old shared URL stops working.
+
+    The bytes are always produced by `app.avatars.normalise()`: centre-cropped
+    square, max 256px, re-encoded. That also drops EXIF (GPS/camera data from a
+    phone photo can never reach the browser) and rejects anything not really an
+    image.
+    """
+
+    __tablename__ = "user_avatars"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    slug: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    mime: Mapped[str] = mapped_column(String(16), default="image/jpeg")
+    width: Mapped[int] = mapped_column(Integer, default=256)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    # "upload" (file picked in the Mini App) | "telegram" (pushed by the bot).
+    source: Mapped[str] = mapped_column(String(12), default="upload", server_default="upload")
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class ChatMessage(Base):
+    """One message in a community chat room.
+
+    Rooms: each grade has its own room (`kind="grade"`, `grade_id` set) so a
+    5-sinf pupil never reads an 11-sinf conversation, plus one school-wide
+    announcement channel (`kind="news"`, `grade_id` NULL) that only admins may
+    write to — the "e'lonxona" the teacher asked for.
+
+    `status` is what makes moderation possible without a rewrite:
+      * approved — visible in the room
+      * pending  — waiting for an admin (used when CHAT_PREMODERATION is on)
+      * rejected — an admin said no (the author still sees it with the reason)
+      * deleted  — removed after the fact; the room no longer shows it
+    """
+
+    __tablename__ = "chat_messages"
+    __table_args__ = (
+        Index("ix_chat_room_visible", "kind", "grade_id", "status", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # "grade" | "news"
+    kind: Mapped[str] = mapped_column(String(8), default="grade", server_default="grade")
+    grade_id: Mapped[int | None] = mapped_column(
+        ForeignKey("grades.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    text: Mapped[str] = mapped_column(String(500))
+    # "pending" | "approved" | "rejected" | "deleted"
+    status: Mapped[str] = mapped_column(String(9), default="approved", server_default="approved")
+    reject_reason: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    # Two FKs point at users (author + the admin who decided), so each
+    # relationship must name its own join path or SQLAlchemy cannot pick one.
+    user: Mapped[User] = relationship(foreign_keys=[user_id])
+    reviewer: Mapped[User | None] = relationship(foreign_keys=[reviewed_by])
+    grade: Mapped[Grade | None] = relationship()

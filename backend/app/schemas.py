@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ORMModel(BaseModel):
@@ -58,6 +58,9 @@ class ProfileResponse(BaseModel):
     # Consecutive local (Asia/Tashkent) days with activity — shown as 🔥.
     current_streak: int = 0
     max_streak: int = 0
+    # Relative capability URL of the profile picture (see app/avatars.py).
+    # None = no picture yet, so the Mini App draws initials instead.
+    avatar_url: str | None = None
 
 
 # ---------- weekly league (leaderboard) ----------
@@ -579,3 +582,120 @@ class ProgressResponse(BaseModel):
     lessons_passed: int
     subjects: list[SubjectProgress]
     achievements: list[AchievementOut]
+
+
+# ---------- profile picture (avatar) ----------
+class AvatarOut(BaseModel):
+    """What the Mini App shows after an upload/remove.
+
+    `avatar_url` is the capability path; `size_bytes` is the STORED (already
+    downscaled) size, which is what the pupil's storage actually costs us.
+    """
+
+    avatar_url: str
+    mime: str
+    width: int
+    size_bytes: int
+    # "upload" = picked in the Mini App, "telegram" = pushed by the bot.
+    source: str
+    updated_at: datetime
+
+
+# ---------- community chat ----------
+class ChatSendRequest(BaseModel):
+    """Post to a room. `kind="news"` is the e'lonxona (admin-only writer).
+
+    `kind` is validated by app/chat.py (400/422 with an Uzbek message) rather
+    than by a pydantic pattern, so a wrong room fails the same way everywhere.
+    """
+
+    text: str
+    kind: str = "grade"
+    # Required for kind="grade"; ignored for news (the room is a grade's, news is not).
+    grade_id: int | None = Field(default=None, ge=1)
+
+
+class ChatMessageOut(BaseModel):
+    """One message in a feed.
+
+    The author is a first name + (optional) avatar only — never the telegram id,
+    so a pupil's number cannot be harvested from the chat (rule: minimal data
+    about children). `status` lets the composer show an honest state:
+    "approved" (public), "pending" (waiting for a teacher) or "rejected"
+    (with `reject_reason`). Those two only ever appear for YOUR OWN messages.
+    """
+
+    id: int
+    kind: str
+    grade_id: int | None
+    grade_name: str | None
+    author_id: int
+    author_name: str
+    avatar_url: str | None
+    text: str
+    status: str
+    reject_reason: str | None = None
+    is_me: bool
+    created_at: datetime
+
+
+class ChatRoomOut(BaseModel):
+    """A room the pupil may open (their own grade + the school e'lonxona)."""
+
+    kind: str
+    grade_id: int | None
+    name: str
+    emoji: str
+    can_post: bool
+    is_current_grade: bool
+    # Cache-busting hint for the poller: newest id the server has for this room.
+    latest_id: int | None = None
+
+
+class ChatFeedOut(BaseModel):
+    kind: str
+    grade_id: int | None
+    messages: list[ChatMessageOut]
+    # Newest id in this response — the client sends it back as after_id next poll.
+    latest_id: int | None
+    premoderation: bool
+
+
+class ChatSendOut(BaseModel):
+    message: ChatMessageOut
+    premoderation: bool
+    message_uz: str
+
+
+class ChatPendingItem(BaseModel):
+    """A queued message + everything an admin needs to decide."""
+
+    id: int
+    kind: str
+    grade_id: int | None
+    grade_name: str | None
+    author_id: int
+    author_name: str
+    avatar_url: str | None
+    text: str
+    created_at: datetime
+
+
+class ChatPendingOut(BaseModel):
+    """The moderation queue + the badge count."""
+
+    count: int
+    premoderation: bool
+    items: list[ChatPendingItem]
+
+
+class ChatReviewRequest(BaseModel):
+    """Rejection needs a reason; approve/delete do not."""
+
+    reason: str | None = Field(default=None, max_length=160)
+
+    @field_validator("reason")
+    @classmethod
+    def _strip_reason(cls, value: str | None) -> str | None:
+        value = (value or "").strip()
+        return value or None

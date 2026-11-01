@@ -48,3 +48,12 @@ def get_current_user(
     if user is None:
         raise _unauthorized("Foydalanuvchi topilmadi")
     return user
+
+
+def is_admin_user(user: User) -> bool:
+    """One rule for 'is this person a teacher/admin', used by every router.
+
+    Web accounts have telegram_id NULL, so they are never admin — the admin
+    surface stays tied to the ids listed in ADMIN_TELEGRAM_IDS.
+    """
+    return user.telegram_id in get_settings().admin_id_set

@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     ADMIN_TELEGRAM_IDS: str = ""
     # Public backend base for QR links printed on certificates (not a secret).
     PUBLIC_BASE_URL: str = "https://eduqurst.onrender.com"
+    # Community chat: False = a message appears at once and the admin deletes
+    # what is wrong; True = every message waits in the admin approval queue.
+    # Flipped in Render WITHOUT a code change (the model already stores both).
+    CHAT_PREMODERATION: bool = False
+    # Flood guard, measured in the database (survives a restart, one rule for
+    # every room). Children type slowly; this only stops copy-paste flooding.
+    CHAT_RATE_LIMIT: int = 10
+    CHAT_RATE_WINDOW_SECONDS: int = 60
 
     @property
     def cors_origin_list(self) -> list[str]:

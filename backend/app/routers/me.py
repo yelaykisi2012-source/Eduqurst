@@ -3,8 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app import gamification, streaks
-from app.config import get_settings
+from app import avatars, gamification, streaks
 from app.db import get_db
 from app.grades import user_grade
 from app.models import Achievement, Grade, Lesson, LessonProgress, Subject, User, UserAchievement
@@ -16,20 +15,28 @@ from app.schemas import (
     SetGradeRequest,
     SubjectProgress,
 )
-from app.security import get_current_user
+from app.security import get_current_user, is_admin_user
 
 router = APIRouter(prefix="/api", tags=["me"])
 
 
-def _profile(user: User, grade: Grade | None) -> ProfileResponse:
+def _profile(db: Session, user: User, grade: Grade | None) -> ProfileResponse:
+    """Home-screen/profile payload.
+
+    `avatar_url` is the capability path of the stored picture (see
+    app/avatars.py) — None when the pupil has no picture, which is how the Mini
+    App knows to fall back to initials.
+    """
+    row = avatars.get(db, user.id)
     return ProfileResponse(
         first_name=user.first_name,
         grade_id=grade.id if grade else None,
         grade_name=grade.name if grade else None,
         needs_grade_selection=grade is None,
-        is_admin=user.telegram_id in get_settings().admin_id_set,
+        is_admin=is_admin_user(user),
         current_streak=user.current_streak or 0,
         max_streak=user.max_streak or 0,
+        avatar_url=avatars.public_path(user.id, row.slug) if row else None,
     )
 
 
@@ -49,7 +56,7 @@ def my_profile(
     """Saved profile. If needs_grade_selection is true the app shows onboarding."""
     if streaks.touch(db, user):
         db.commit()
-    return _profile(user, user_grade(db, user))
+    return _profile(db, user, user_grade(db, user))
 
 
 @router.post("/me/grade", response_model=ProfileResponse)
@@ -71,7 +78,7 @@ def select_grade(
         )
     user.grade_id = grade.id
     db.commit()
-    return _profile(user, grade)
+    return _profile(db, user, grade)
 
 
 @router.get("/me/progress", response_model=ProgressResponse)
