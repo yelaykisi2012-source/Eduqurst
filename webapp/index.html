@@ -2,7 +2,11 @@
 <html lang="uz">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <!-- Pinch-zoom stays enabled: maximum-scale/user-scalable=no only stops a
+         pupil with poor eyesight from enlarging a lesson, and Telegram's own
+         WebView already blocks page zoom. viewport-fit=cover is kept for the
+         notch, and the bottom bar adds safe-area padding of its own. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>EduQuest — O‘rganish — endi o‘yin!</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -70,7 +70,7 @@ export default function GradePicker({
                   <span className="block text-xs sm:text-sm font-black text-slate-900 leading-tight">
                     {g.name}
                   </span>
-                  <span className="block text-[9.5px] sm:text-[10px] font-semibold text-slate-400 mt-0.5">
+                  <span className="block text-[10.5px] sm:text-[11px] font-semibold text-slate-400 mt-0.5">
                     O‘quv kursi
                   </span>
                 </div>
@@ -114,7 +114,7 @@ export default function GradePicker({
             <IconGraduationCap size={18} />
           </div>
           <div>
-            <span className="text-[9.5px] sm:text-xs font-bold uppercase tracking-wider text-blue-200">
+            <span className="text-[10.5px] sm:text-xs font-bold uppercase tracking-wider text-blue-200">
               Qadam 1 / 1
             </span>
             <h2 className="text-base sm:text-xl font-black text-white leading-tight">

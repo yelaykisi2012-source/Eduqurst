@@ -104,7 +104,7 @@ export default function ExamList({ token, onOpen }: ExamListProps) {
               <span className="block text-sm sm:text-lg font-black leading-none">
                 {item.top}
               </span>
-              <span className="block text-[9px] sm:text-[10px] font-bold text-indigo-100 mt-1">
+              <span className="block text-[10px] sm:text-[11px] font-bold text-indigo-100 mt-1">
                 {item.bottom}
               </span>
             </div>

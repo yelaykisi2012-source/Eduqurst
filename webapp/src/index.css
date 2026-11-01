@@ -191,6 +191,26 @@ body {
   background: #94a3b8;
 }
 
+/* A strip that must scroll (the tablet navbar, the chat room chips) should not
+   show a scrollbar — on a phone it is a thumb-sized bar that steals a row. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Telegram's WebView keeps a dynamic address bar, so 100vh is TALLER than the
+   space the pupil actually has: the bottom of the lesson video and the chat
+   input ended up under the keyboard/navbar. dvh is the visible height; browsers
+   without it keep the vh value declared first. */
+@supports (height: 100dvh) {
+  .app-shell {
+    min-height: 100dvh;
+  }
+}
+
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
   .animate-blob-1,

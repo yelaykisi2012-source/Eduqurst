@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, MouseEvent } from "react";
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
   variant?: "default" | "elevated" | "flat" | "interactive";
@@ -29,7 +29,24 @@ export default function Card({
 
   return (
     <div
-      className={`${variantStyles[variant]} ${paddingStyles[padding]} ${className}`}
+      className={`${variantStyles[variant]} ${paddingStyles[padding]} ${
+        props.onClick ? "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-2 " : ""
+      }${className}`}
+      // An "interactive" card is a button that happens to look like a card.
+      // Without these two attributes a pupil on a keyboard (or a screen reader)
+      // can never reach the subject list, because a plain <div> is not focusable.
+      role={props.onClick ? "button" : undefined}
+      tabIndex={props.onClick ? 0 : undefined}
+      onKeyDown={
+        props.onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                props.onClick?.(e as unknown as MouseEvent<HTMLDivElement>);
+              }
+            }
+          : undefined
+      }
       {...props}
     >
       {children}

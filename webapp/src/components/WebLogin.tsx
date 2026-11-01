@@ -169,7 +169,7 @@ export default function WebLogin({ onAuth, onPasswordAuth, error }: WebLoginProp
   };
 
   return (
-    <div className="relative min-h-[82vh] flex items-center justify-center px-4 py-8 overflow-hidden">
+    <div className="relative min-h-[82dvh] flex items-center justify-center px-4 py-8 overflow-hidden">
       {/* Background soft mesh blobs */}
       <div className="pointer-events-none absolute -top-24 -left-24 h-96 w-96 rounded-full bg-blue-400/20 blur-[80px] animate-blob-1" />
       <div className="pointer-events-none absolute top-1/2 -right-24 h-[420px] w-[420px] rounded-full bg-purple-400/20 blur-[90px] animate-blob-2" />

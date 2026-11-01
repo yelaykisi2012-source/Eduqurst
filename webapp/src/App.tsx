@@ -299,12 +299,21 @@ export default function App() {
       ? subjects.find((s) => s.id === view.subjectId)
       : undefined;
 
+  /**
+   * "Fanlar" does not open a new screen while the pupil is on the home page —
+   * the subjects are already there, so it scrolls to them. Without this pin the
+   * tab bar then kept highlighting "Bosh sahifa", which reads as "the button
+   * did nothing". The pin is cleared by every real navigation.
+   */
+  const [pinnedTab, setPinnedTab] = useState<NavTab | null>(null);
+
   const navTo = (v: View) => {
+    setPinnedTab(null);
     setView(v);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const currentTab: NavTab =
+  const derivedTab: NavTab =
     view.kind === "home"
       ? "home"
       : view.kind === "subject" || view.kind === "lesson" || view.kind === "quiz" || view.kind === "result"
@@ -321,10 +330,13 @@ export default function App() {
                   ? "admin"
                   : "home";
 
+  const currentTab: NavTab = pinnedTab ?? derivedTab;
+
   const handleTabChange = (tab: NavTab) => {
     if (tab === "home") navTo({ kind: "home" });
     else if (tab === "lessons") {
       if (view.kind === "home") {
+        setPinnedTab("lessons");
         const el = document.getElementById("subjects-section");
         if (el) el.scrollIntoView({ behavior: "smooth" });
       } else {
@@ -355,7 +367,7 @@ export default function App() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#F7F9FC] text-slate-900 antialiased selection:bg-blue-100 selection:text-blue-900">
+    <div className="app-shell flex min-h-screen flex-col bg-[#F7F9FC] text-slate-900 antialiased selection:bg-blue-100 selection:text-blue-900">
       {/* Top Navigation */}
       {phase === "home" && (
         <Navbar
@@ -369,8 +381,13 @@ export default function App() {
         />
       )}
 
-      {/* Main Content Area */}
-      <main className="mx-auto w-full max-w-5xl flex-1 px-3 sm:px-6 pt-1.5 pb-32 sm:py-6">
+      {/* Main Content Area
+          max-w-6xl matches the navbar container, so the cards line up under the
+          tabs instead of sitting in a narrower column than the bar above them.
+          The bottom padding is the phone tab bar + the iOS home indicator, which
+          a fixed pb-32 got wrong on both ends (dead space on Android, the last
+          "Hisobdan chiqish" button hidden behind the bar on an iPhone). */}
+      <main className="mx-auto w-full max-w-6xl flex-1 px-3 sm:px-6 pt-1.5 pb-[calc(5.5rem_+_env(safe-area-inset-bottom,0px))] sm:pt-6 sm:pb-10">
         {/* Loading / Boot states */}
         {phase === "boot" || phase === "busy" ? (
           <div className="mx-auto max-w-md py-20 text-center animate-fade-in">
@@ -419,8 +436,10 @@ export default function App() {
           /* ===================== HOMEPAGE ===================== */
           <div className="space-y-2.5 sm:space-y-5 animate-fade-in">
             {/* Mobile Top Bar (Compact, fits in Telegram Mini App) */}
-            <div className="flex flex-col gap-1 md:hidden mb-0.5">
-              <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-1 mb-0.5">
+              {/* The brand row only exists on phones: from md up the navbar
+                  already carries the logo, the grade and the counters. */}
+              <div className="flex items-center justify-between md:hidden">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#3478F6] to-blue-700 text-white font-black text-xs shadow-2xs">
                     E
@@ -456,12 +475,14 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Greeting */}
-              <div className="flex items-center justify-between mt-0.5">
-                <h1 className="text-sm sm:text-base font-extrabold text-slate-900 truncate max-w-[260px]">
+              {/* Greeting — kept at every width. It used to live inside the
+                  md:hidden block, so a tablet or desktop pupil never saw their
+                  own name and lost the "0/5 dars" progress line entirely. */}
+              <div className="flex items-end justify-between gap-3 mt-0.5">
+                <h1 className="min-w-0 truncate text-sm sm:text-base md:text-xl font-extrabold text-slate-900">
                   Salom, {name}! 👋
                 </h1>
-                <span className="text-[10px] font-bold text-slate-400">
+                <span className="shrink-0 text-[11px] md:text-sm font-bold text-slate-400">
                   {passedLessonsCount}/{totalLessonsCount} dars
                 </span>
               </div>
@@ -475,22 +496,28 @@ export default function App() {
             >
               <div className="flex items-center justify-between gap-2.5 relative z-10">
                 <div className="min-w-0 flex-1">
-                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/20 backdrop-blur-md text-[9.5px] sm:text-xs font-black text-blue-100">
+                  {/* The slogan pill is decoration; the sentence below is the
+                      message. On a 320px phone there is no room for both, so the
+                      pill steps aside instead of breaking into two ragged lines. */}
+                  <div className="inline-flex max-[359px]:hidden items-center gap-1 px-2 py-0.5 rounded-md bg-white/20 backdrop-blur-md text-[10.5px] sm:text-xs font-black text-blue-100 whitespace-nowrap">
                     <IconSparkles size={10} />
                     <span>O‘rganish — endi o‘yin!</span>
                   </div>
-                  <h2 className="text-xs sm:text-lg font-black tracking-tight text-white mt-1 leading-snug truncate">
+                  {/* line-clamp, not truncate: at 360px the sentence lost its
+                      last word ("…bilimni egalla") and the pupil read a
+                      half-sentence. Two lines always fit. */}
+                  <h2 className="text-xs sm:text-lg font-black tracking-tight text-white mt-1 leading-snug line-clamp-2">
                     Bugun qaysi yangi bilimni egallaymiz?
                   </h2>
                 </div>
 
                 {/* Inline mini-metrics badge */}
-                <div className="shrink-0 flex items-center gap-2 bg-white/15 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/20">
+                <div className="shrink-0 flex items-center gap-1.5 sm:gap-2 bg-white/15 backdrop-blur-md px-2 sm:px-2.5 py-1.5 rounded-xl border border-white/20">
                   <div className="text-center">
                     <span className="block text-xs sm:text-sm font-black text-amber-300 leading-none">
                       ⭐ {starsTotal}
                     </span>
-                    <span className="text-[9px] font-bold text-blue-100">
+                    <span className="block text-[10px] font-bold text-blue-100 leading-tight mt-0.5">
                       Yulduz
                     </span>
                   </div>
@@ -499,7 +526,7 @@ export default function App() {
                     <span className="block text-xs sm:text-sm font-black text-white leading-none">
                       {passedLessonsCount}/{totalLessonsCount}
                     </span>
-                    <span className="text-[9px] font-bold text-blue-100">
+                    <span className="block text-[10px] font-bold text-blue-100 leading-tight mt-0.5">
                       Yakunlandi
                     </span>
                   </div>
@@ -528,10 +555,10 @@ export default function App() {
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-extrabold text-blue-600 uppercase">
+                        <span className="text-[10px] font-extrabold text-blue-600 uppercase shrink-0">
                           {continueItem.subject.name}
                         </span>
-                        <span className="text-[10px] font-semibold text-slate-400">
+                        <span className="text-[10px] font-semibold text-slate-400 whitespace-nowrap">
                           · {continueItem.lesson.level_order}-bosqich
                         </span>
                       </div>
@@ -575,13 +602,13 @@ export default function App() {
                     <IconExam size={17} />
                   </div>
                   <div className="min-w-0">
-                    <span className="text-[10px] font-extrabold text-indigo-600 uppercase">
+                    <span className="text-[10.5px] font-extrabold text-indigo-600 uppercase">
                       20 savol · 90% · sertifikat
                     </span>
                     <h3 className="text-xs sm:text-sm font-bold text-slate-900 truncate">
                       Majburiy imtihon
                     </h3>
-                    <p className="text-[10px] sm:text-[11px] font-semibold text-slate-500 truncate">
+                    <p className="text-[11px] sm:text-[11.5px] font-semibold text-slate-500 sm:line-clamp-2">
                       Darslarni o‘qimasangiz ham bilimingizni isbotlang
                     </p>
                   </div>

@@ -129,7 +129,7 @@ function FileMaterialCard({ material, token }: { material: Material; token: stri
           <iframe
             title={material.title || "PDF"}
             src={file.url}
-            className="h-[70vh] w-full bg-slate-50"
+            className="h-[70dvh] w-full bg-slate-50"
           />
           <ViewerFooter name={file.name} onDownload={handleDownload} onClose={() => setOpen(false)} />
         </div>

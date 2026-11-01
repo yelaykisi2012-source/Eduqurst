@@ -327,6 +327,19 @@ export default function ChatPage({
   const latestRef = useRef<number | null>(null);
   const roomRef = useRef<RoomRef | null>(null);
   const feedBox = useRef<HTMLDivElement | null>(null);
+  const roomStrip = useRef<HTMLDivElement | null>(null);
+
+  // Eleven room chips do not fit on a 360px phone, so the strip scrolls. When a
+  // pupil opens their own class room the chip is often the one that is off
+  // screen — bring it back into view, otherwise the bar looks like the tap did
+  // nothing. block:"nearest" keeps the page from jumping vertically.
+  useEffect(() => {
+    const strip = roomStrip.current;
+    if (!strip) return;
+    strip
+      .querySelector<HTMLElement>('[data-active="true"]')
+      ?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+  }, [active, rooms]);
 
   const activeRoom = useMemo(
     () => (active ? (rooms ?? []).find((r) => sameRoom(r, active)) ?? null : null),
@@ -606,14 +619,18 @@ export default function ChatPage({
             </div>
           </Card>
 
-          <div className="flex gap-1.5 overflow-x-auto pb-1.5 -mx-0.5 px-0.5">
+          <div
+            ref={roomStrip}
+            className="no-scrollbar -mx-0.5 flex snap-x gap-1.5 overflow-x-auto px-0.5 pb-1.5"
+          >
             {rooms.map((room) => {
               const on = sameRoom(active, room);
               return (
                 <button
                   key={roomKey(room)}
+                  data-active={on ? "true" : undefined}
                   onClick={() => setActive({ kind: room.kind, gradeId: room.grade_id })}
-                  className={`shrink-0 inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] sm:text-xs font-bold border transition-colors cursor-pointer ${
+                  className={`shrink-0 snap-start inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] sm:text-xs font-bold border transition-colors cursor-pointer whitespace-nowrap ${
                     on
                       ? "bg-blue-600 text-white border-blue-600 shadow-xs"
                       : "bg-white text-slate-700 border-slate-200 hover:border-blue-300"
@@ -622,7 +639,7 @@ export default function ChatPage({
                   <span aria-hidden>{room.emoji}</span>
                   <span>{room.name}</span>
                   {room.is_current_grade && !on && (
-                    <span className="text-[9px] font-black text-blue-600">· siz</span>
+                    <span className="text-[10px] font-black text-blue-600">· siz</span>
                   )}
                 </button>
               );
@@ -633,7 +650,7 @@ export default function ChatPage({
           <Card className="mt-2 p-0 overflow-hidden">
             <div
               ref={feedBox}
-              className="max-h-[52vh] min-h-[220px] overflow-y-auto px-2.5 py-3 sm:px-4 bg-slate-50/60"
+              className="max-h-[52dvh] min-h-[220px] overflow-y-auto px-2.5 py-3 sm:px-4 bg-slate-50/60"
             >
               {needGrade ? (
                 <div className="py-8 text-center">
@@ -718,19 +735,19 @@ export default function ChatPage({
                         </p>
                         <div className="mt-1 flex items-center gap-1.5 justify-end">
                           <span
-                            className={`text-[9px] font-bold ${
+                            className={`text-[10px] font-bold ${
                               msg.is_me ? "text-blue-200" : "text-slate-400"
                             }`}
                           >
                             {stamp(msg.created_at)}
                           </span>
                           {msg.status === "pending" && (
-                            <span className="text-[9px] font-black text-amber-600">
+                            <span className="text-[10px] font-black text-amber-600">
                               ⏳ tekshiruvda
                             </span>
                           )}
                           {msg.status === "rejected" && (
-                            <span className="text-[9px] font-black text-rose-600">
+                            <span className="text-[10px] font-black text-rose-600">
                               ⛔ rad etildi
                             </span>
                           )}
@@ -775,16 +792,19 @@ export default function ChatPage({
                       }}
                       rows={1}
                       maxLength={500}
+                      // The room is already highlighted in the strip above, and a
+                      // long placeholder wrapped to a second line inside a
+                      // one-row box — so on a 320px phone the pupil saw
+                      // "3-sinf xonasiga / yozin…" with the word cut in half.
                       placeholder={
-                        activeRoom?.kind === "news"
-                          ? "E'lon yozing…"
-                          : `${activeRoom?.name ?? "Sinf"} xonasiga yozing…`
+                        activeRoom?.kind === "news" ? "E'lon yozing…" : "Xabar yozing…"
                       }
-                      className="flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-[12px] sm:text-sm font-medium text-slate-900 outline-none focus:border-blue-400 focus:bg-white max-h-32"
+                      className="min-w-0 flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-[12px] sm:text-sm font-medium text-slate-900 outline-none focus:border-blue-400 focus:bg-white max-h-32"
                     />
                     <Button
                       variant="primary"
                       size="sm"
+                      className="shrink-0"
                       loading={sending}
                       disabled={draft.trim().length === 0}
                       onClick={() => void send()}
@@ -794,7 +814,7 @@ export default function ChatPage({
                     </Button>
                   </div>
                   <div className="mt-1 flex items-center justify-between gap-2">
-                    <p className="text-[9.5px] sm:text-[10px] font-semibold text-slate-400">
+                    <p className="text-[10.5px] sm:text-[11px] font-semibold text-slate-400">
                       500 belgi · 4 qatorgacha · juda tez yozsangiz chat biroz to‘xtatadi
                     </p>
                     {draft.length > 400 && (
@@ -813,7 +833,7 @@ export default function ChatPage({
                 <p className="mt-1.5 text-[11px] font-bold text-rose-600">{sendError}</p>
               )}
               {latestId !== null && messages.length > 0 && !firstLoad && (
-                <p className="mt-1 text-[9.5px] font-semibold text-slate-400">
+                <p className="mt-1 text-[10.5px] font-semibold text-slate-400">
                   💬 {messages.length} xabar ko‘rsatilmoqda · yangilanish avtomatik
                 </p>
               )}
