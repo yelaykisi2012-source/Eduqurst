@@ -11,6 +11,7 @@ import ExamList from "./components/ExamList";
 import ExamPage from "./components/ExamPage";
 import ExamResultScreen from "./components/ExamResultScreen";
 import AdminPage from "./components/AdminPage";
+import ChatPage from "./components/ChatPage";
 import WebLogin from "./components/WebLogin";
 import { AchievementsPage, ProfilePage } from "./components/Pages";
 import Card from "./components/ui/Card";
@@ -59,6 +60,7 @@ type View =
       result: ExamResult;
     }
   | { kind: "achievements" }
+  | { kind: "chat" }
   | { kind: "profile" }
   | { kind: "admin" };
 
@@ -274,6 +276,19 @@ export default function App() {
     setView({ kind: "subject", subjectId });
   };
 
+  /**
+   * Re-read /api/me. Used after an avatar upload/removal: the capability URL
+   * changes with every upload, so every screen must pick up the new one.
+   */
+  const refreshProfile = useCallback(async () => {
+    if (!token) return;
+    try {
+      setProfile(await api.me(token));
+    } catch {
+      /* the picture is stored already — a later screen refresh shows it */
+    }
+  }, [token]);
+
   const name = profile?.first_name || progress?.first_name || "O‘quvchi";
   const gradeLabel = profile?.grade_name ?? progress?.grade_name;
   const starsTotal = progress?.stars_total ?? 0;
@@ -296,13 +311,15 @@ export default function App() {
         ? "lessons"
         : view.kind === "exams" || view.kind === "exam" || view.kind === "examResult"
           ? "exams"
-          : view.kind === "achievements"
-            ? "achievements"
-            : view.kind === "profile"
-              ? "profile"
-              : view.kind === "admin"
-                ? "admin"
-                : "home";
+          : view.kind === "chat"
+            ? "chat"
+            : view.kind === "achievements"
+              ? "achievements"
+              : view.kind === "profile"
+                ? "profile"
+                : view.kind === "admin"
+                  ? "admin"
+                  : "home";
 
   const handleTabChange = (tab: NavTab) => {
     if (tab === "home") navTo({ kind: "home" });
@@ -314,6 +331,7 @@ export default function App() {
         navTo({ kind: "home" });
       }
     } else if (tab === "exams") navTo({ kind: "exams" });
+    else if (tab === "chat") navTo({ kind: "chat" });
     else if (tab === "achievements") navTo({ kind: "achievements" });
     else if (tab === "profile") navTo({ kind: "profile" });
     else if (tab === "admin") navTo({ kind: "admin" });
@@ -735,6 +753,15 @@ export default function App() {
         ) : view.kind === "achievements" ? (
           /* ===================== ACHIEVEMENTS ===================== */
           <AchievementsPage progress={progress} token={token} />
+        ) : view.kind === "chat" ? (
+          /* ===================== COMMUNITY CHAT ===================== */
+          <ChatPage
+            token={token}
+            isAdmin={Boolean(profile?.is_admin)}
+            gradeName={gradeLabel ?? null}
+            notify={showToast}
+            onChangeGrade={changeGrade}
+          />
         ) : view.kind === "admin" ? (
           /* ===================== ADMIN PAGE ===================== */
           <AdminPage token={token} notify={showToast} />
@@ -743,8 +770,11 @@ export default function App() {
           <ProfilePage
             profile={profile}
             progress={progress}
+            token={token}
             onChangeGrade={changeGrade}
             onLogout={webSession ? logout : undefined}
+            onProfileRefresh={refreshProfile}
+            notify={showToast}
           />
         )}
       </main>

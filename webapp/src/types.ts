@@ -18,6 +18,25 @@ export interface Profile {
   /** Consecutive local (Asia/Tashkent) days with activity — shown as 🔥. */
   current_streak: number;
   max_streak: number;
+  /**
+   * Server-relative capability URL of the profile picture (see app/avatars.py),
+   * e.g. `/api/avatars/12/3f9c…`. Optional because a backend that predates this
+   * feature simply does not send the field — the UI then draws initials.
+   * The slug changes on every re-upload, so a removed picture dies with it.
+   */
+  avatar_url?: string | null;
+}
+
+/** Profile picture as described by POST /api/me/avatar (no bytes, only metadata). */
+export interface Avatar {
+  avatar_url: string;
+  mime: string;
+  width: number;
+  /** Size of the STORED (already downscaled to 256px) image. */
+  size_bytes: number;
+  /** "upload" = picked in the Mini App, "telegram" = pushed by the bot. */
+  source: string;
+  updated_at: string;
 }
 
 /** Admin dashboard data: one grade with its subjects. */
@@ -338,4 +357,77 @@ export interface Leaderboard {
   participants: number;
   top: LeaderboardEntry[];
   me: LeaderboardMe | null;
+}
+
+/**
+ * Community chat (GET /api/chat/rooms).
+ * kind: "news" = school-wide e'lonxona (only admins may post),
+ *       "grade" = one room per grade; a pupil only ever gets their own.
+ */
+export interface ChatRoom {
+  kind: string;
+  grade_id: number | null;
+  name: string;
+  emoji: string;
+  can_post: boolean;
+  is_current_grade: boolean;
+  /** Newest message id the server has for this room (poll hint). */
+  latest_id: number | null;
+}
+
+/**
+ * One message. `status` is "approved" for everybody, while "pending"/"rejected"
+ * only ever arrive on YOUR OWN messages, so nothing looks silently lost.
+ * The author is a name + optional avatar — never a Telegram id.
+ */
+export interface ChatMessage {
+  id: number;
+  kind: string;
+  grade_id: number | null;
+  grade_name: string | null;
+  author_id: number;
+  author_name: string;
+  avatar_url: string | null;
+  text: string;
+  status: string;
+  reject_reason: string | null;
+  is_me: boolean;
+  created_at: string;
+}
+
+export interface ChatFeed {
+  kind: string;
+  grade_id: number | null;
+  /** Oldest first — append as-is. */
+  messages: ChatMessage[];
+  /** Send this back as `after_id` on the next poll. */
+  latest_id: number | null;
+  premoderation: boolean;
+}
+
+export interface ChatSendResult {
+  message: ChatMessage;
+  premoderation: boolean;
+  /** Ready-made Uzbek confirmation ("Yuborildi ✅" / "…tekshiruviga yuborildi ⏳"). */
+  message_uz: string;
+}
+
+/** A message waiting in the admin moderation queue. */
+export interface ChatPendingItem {
+  id: number;
+  kind: string;
+  grade_id: number | null;
+  grade_name: string | null;
+  author_id: number;
+  author_name: string;
+  avatar_url: string | null;
+  text: string;
+  created_at: string;
+}
+
+export interface ChatPendingQueue {
+  /** Global count — drives the admin badge. */
+  count: number;
+  premoderation: boolean;
+  items: ChatPendingItem[];
 }

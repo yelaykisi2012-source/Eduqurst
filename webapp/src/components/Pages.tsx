@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError } from "../api";
 import type {
+  Avatar,
   Certificate,
   EligibleCertificate,
   Leaderboard,
@@ -17,7 +18,9 @@ import {
   IconCheck,
   IconDownload,
   IconGraduationCap,
+  IconImage,
   IconLock,
+  IconTrash,
 } from "./ui/Icons";
 
 /** "2026-10-26" → "26.10" (optionally shifted by a day). */
@@ -446,21 +449,202 @@ export function AchievementsPage({
   );
 }
 
+/**
+ * The 256px face used on the profile card: the uploaded picture when there is
+ * one, the initial when there is not (a pupil who never set a picture is not
+ * left with an empty grey hole).
+ */
+function AvatarFace({
+  name,
+  avatarUrl,
+  className = "",
+}: {
+  name: string;
+  avatarUrl?: string | null;
+  className?: string;
+}) {
+  const url = api.publicUrl(avatarUrl);
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt={`${name} profili`}
+        className={`shrink-0 rounded-2xl object-cover ring-1 ring-slate-200 ${className}`}
+      />
+    );
+  }
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#3478F6] to-indigo-600 font-black text-white shadow-xs ${className}`}
+      aria-hidden
+    >
+      {(name.trim().charAt(0) || "?").toUpperCase()}
+    </div>
+  );
+}
+
+/**
+ * AvatarSection — "profiliga rasm qoya olsin".
+ *
+ * The file is sent as-is; the server centre-crops it to a 256px square,
+ * re-encodes it (which drops the phone's EXIF block, so no GPS coordinates or
+ * camera serial leave the device) and returns a brand new capability URL.
+ * Removing the picture rotates that URL too, so a link already shared dies.
+ *
+ * A Telegram profile photo can also be pushed by the bot ("🖼 Rasmim" tugmasi) —
+ * both sources land in the same row, so the Mini App never has to know which.
+ */
+function AvatarSection({
+  token,
+  profile,
+  onSaved,
+  notify,
+}: {
+  token: string;
+  profile: Profile | null;
+  onSaved: () => void | Promise<void>;
+  notify: (msg: string) => void;
+}) {
+  const picker = useRef<HTMLInputElement | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState<Avatar | null>(null);
+
+  const name = profile?.first_name || "O‘quvchi";
+  const hasPicture = Boolean(profile?.avatar_url);
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setError("");
+    // Cheap checks first so the pupil sees the reason instantly; the server
+    // re-validates everything (a renamed .exe is still not an image).
+    if (!file.type.startsWith("image/")) {
+      setError("Rasm fayli tanlang — JPG, PNG yoki WEBP.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Rasm juda katta — 5 MB dan kichikroq fayl tanlang.");
+      return;
+    }
+    setBusy(true);
+    try {
+      setSaved(await api.uploadAvatar(token, file));
+      await onSaved();
+      notify("Profilingiz rasmi qo‘yildi 🖼️");
+    } catch (e) {
+      setError(
+        e instanceof ApiError ? e.message : "Rasmni yuklab bo‘lmadi. Aloqani tekshiring.",
+      );
+    } finally {
+      setBusy(false);
+      // Allow picking the same file twice (browsers would otherwise not fire change).
+      if (picker.current) picker.current.value = "";
+    }
+  };
+
+  const remove = async () => {
+    setRemoving(true);
+    setError("");
+    try {
+      await api.removeAvatar(token);
+      setSaved(null);
+      await onSaved();
+      notify("Rasm o‘chirildi — profil yana ism bilan ko‘rinadi.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "O‘chirib bo‘lmadi.");
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  return (
+    <Card className="mb-3.5 sm:mb-6 p-3.5 sm:p-5">
+      <div className="flex items-start gap-3">
+        <AvatarFace
+          name={name}
+          avatarUrl={saved?.avatar_url ?? profile?.avatar_url}
+          className="h-16 w-16 text-2xl sm:h-20 sm:w-20"
+        />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xs sm:text-sm font-black text-slate-900">Profil rasmi</h2>
+          <p className="mt-0.5 text-[10px] sm:text-[11px] font-semibold text-slate-500 leading-snug">
+            {hasPicture || saved
+              ? "Rasm 256px kvadrat qilib qisqartiriladi. Telefon ma’lumotlari (Joy/EXIF) saqlanmaydi."
+              : "Hali rasm qo‘ymagansiz — harf ko‘rinadi. Rasm 256px kvadratga o‘giriladi, telefon ma’lumotlari tashlanadi."}
+          </p>
+          {saved && (
+            <p className="mt-1 text-[10px] font-bold text-slate-400">
+              {saved.source === "telegram" ? "Telegram profil rasmi" : "Yuklangan rasm"} ·{" "}
+              {saved.width}×{saved.width} · {Math.max(1, Math.round(saved.size_bytes / 1024))} KB
+            </p>
+          )}
+
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <input
+              ref={picker}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => void upload(e.target.files?.[0])}
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              loading={busy}
+              icon={busy ? undefined : <IconImage size={14} />}
+              onClick={() => picker.current?.click()}
+            >
+              {hasPicture || saved ? "Rasmni almashtirish" : "Rasm yuklash"}
+            </Button>
+            {(hasPicture || saved) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-rose-600 hover:bg-rose-50"
+                loading={removing}
+                icon={removing ? undefined : <IconTrash size={14} />}
+                onClick={() => void remove()}
+              >
+                O‘chirish
+              </Button>
+            )}
+          </div>
+
+          {error && (
+            <p className="mt-1.5 text-[11px] font-bold text-rose-600">{error}</p>
+          )}
+          <p className="mt-1.5 text-[10px] font-semibold text-slate-400">
+            Telegram’da rasmgingiz bo‘lsa, botdagi «🖼 Rasmim» tugmasi uni shu yerga
+            qo‘yadi.
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /** Student Profile Page */
 export function ProfilePage({
   profile,
   progress,
+  token,
   onChangeGrade,
   onLogout,
+  onProfileRefresh,
+  notify,
 }: {
   profile: Profile | null;
   progress: Progress | null;
+  token: string;
   onChangeGrade: () => void;
   onLogout?: () => void;
+  /** Re-reads /api/me so the new picture URL reaches every screen. */
+  onProfileRefresh: () => void | Promise<void>;
+  notify: (msg: string) => void;
 }) {
   const name = profile?.first_name || progress?.first_name || "O‘quvchi";
   const gradeLabel = profile?.grade_name ?? progress?.grade_name ?? "Belgilanmagan";
-  const initial = name.charAt(0).toUpperCase();
 
   // Calculate learning level based on stars
   const stars = progress?.stars_total ?? 0;
@@ -483,9 +667,11 @@ export function ProfilePage({
       <Card variant="elevated" className="mb-3.5 sm:mb-6 p-3.5 sm:p-6 bg-white shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#3478F6] to-indigo-600 text-xl sm:text-2xl font-black text-white shadow-xs">
-              {initial}
-            </div>
+            <AvatarFace
+              name={name}
+              avatarUrl={profile?.avatar_url}
+              className="h-12 w-12 text-xl sm:h-14 sm:w-14 sm:text-2xl"
+            />
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h1 className="text-base sm:text-xl font-black text-slate-900 truncate">{name}</h1>
@@ -545,6 +731,14 @@ export function ProfilePage({
           </div>
         </div>
       </Card>
+
+      {/* Profile picture ("profiliga rasm qoya olsin") */}
+      <AvatarSection
+        token={token}
+        profile={profile}
+        onSaved={onProfileRefresh}
+        notify={notify}
+      />
 
       {/* Subject Progress Section */}
       {progress && progress.subjects.length > 0 && (

@@ -15,7 +15,12 @@ import type {
   AdminLesson,
   AdminQuestionDetail,
   AdminSubject,
+  Avatar,
   Certificate,
+  ChatFeed,
+  ChatPendingQueue,
+  ChatRoom,
+  ChatSendResult,
   EligibleCertificate,
   ExamCard,
   ExamPaper,
@@ -101,8 +106,58 @@ async function req<T>(
   return data as T;
 }
 
+/**
+ * Multipart POST (a real file upload). The browser adds the Content-Type
+ * boundary itself, so ONLY the Authorization header is sent — same rule as
+ * `adminUploadMaterial`. Errors keep the backend's {"error","message_uz"} shape.
+ */
+async function uploadMultipart<T>(
+  path: string,
+  token: string,
+  form: FormData,
+  fallback: string,
+): Promise<T> {
+  if (!HAS_API) {
+    throw new ApiError(0, "Backend manzili sozlanmagan (VITE_API_URL bo‘sh).", "no_api");
+  }
+  const res = await fetch(API_URL + path, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let message = res.statusText || fallback;
+    let code: string | undefined;
+    try {
+      const detail = (JSON.parse(text) as { detail?: unknown } | null)?.detail;
+      if (typeof detail === "string") message = detail;
+      else if (detail && typeof detail === "object") {
+        const d = detail as { error?: string; message_uz?: string };
+        code = d.error;
+        message = d.message_uz ?? fallback;
+      }
+    } catch {
+      /* non-JSON error body — keep the status text */
+    }
+    throw new ApiError(res.status, message, code);
+  }
+  return (await res.json()) as T;
+}
+
 export const api = {
   hasBackend: () => HAS_API,
+
+  /**
+   * Absolute URL for a server-relative path that the browser loads WITHOUT a
+   * token — profile pictures (`/api/avatars/{id}/{slug}`) are fetched by an
+   * <img> tag, which cannot send an Authorization header. In dev API_URL is ""
+   * so the path stays same-origin and Vite's proxy forwards it.
+   */
+  publicUrl: (path: string | null | undefined): string => {
+    if (!path) return "";
+    return /^https?:\/\//i.test(path) ? path : `${API_URL}${path}`;
+  },
 
   login: (initData: string) =>
     req<{ access_token: string; first_name: string }>("/api/auth/telegram", {
@@ -135,6 +190,19 @@ export const api = {
 
   setGrade: (token: string, grade_id: number) =>
     req<Profile>("/api/me/grade", { method: "POST", token, body: { grade_id } }),
+
+  // ---------- profile picture (avatar) ----------
+
+  /** Replace the caller's own picture (≤5 MB; the server crops to a 256px square). */
+  uploadAvatar: (token: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return uploadMultipart<Avatar>("/api/me/avatar", token, form, "Rasmni yuklab bo‘lmadi");
+  },
+
+  /** Remove the picture — the previously shared capability URL stops working. */
+  removeAvatar: (token: string) =>
+    req<{ ok: boolean; removed: boolean }>("/api/me/avatar", { method: "DELETE", token }),
 
   subjects: (token: string) => req<SubjectItem[]>("/api/subjects", { token }),
 
@@ -265,6 +333,59 @@ export const api = {
       `/api/admin/exams${gradeId ? `?grade_id=${gradeId}` : ""}`,
       { token },
     ),
+
+  // ---------- community chat ----------
+
+  /** Rooms the caller may open: e'lonxona + own grade (an admin sees every grade). */
+  chatRooms: (token: string) => req<ChatRoom[]>("/api/chat/rooms", { token }),
+
+  /**
+   * One page of a room, oldest first. First open: omit `afterId` and the newest
+   * 40 arrive. Later polls send back the `latest_id` you rendered and only what
+   * is newer comes through — that is how polling stays cheap.
+   */
+  chatMessages: (
+    token: string,
+    room: { kind: string; gradeId: number | null },
+    afterId?: number | null,
+  ) => {
+    const params = new URLSearchParams({ kind: room.kind });
+    if (room.gradeId != null) params.set("grade_id", String(room.gradeId));
+    if (afterId != null) params.set("after_id", String(afterId));
+    return req<ChatFeed>(`/api/chat/messages?${params.toString()}`, { token });
+  },
+
+  chatSend: (
+    token: string,
+    body: { text: string; kind: string; grade_id?: number | null },
+  ) => req<ChatSendResult>("/api/chat/messages", { method: "POST", token, body }),
+
+  /** Admin: the approval queue plus the global count that drives the badge. */
+  chatPending: (token: string, gradeId?: number | null) =>
+    req<ChatPendingQueue>(
+      `/api/chat/admin/pending${gradeId ? `?grade_id=${gradeId}` : ""}`,
+      { token },
+    ),
+
+  chatApprove: (token: string, messageId: number) =>
+    req<{ ok: boolean; id: number; status: string }>(
+      `/api/chat/admin/${messageId}/approve`,
+      { method: "POST", token },
+    ),
+
+  /** A refusal needs a short reason; the author sees it on their own copy. */
+  chatReject: (token: string, messageId: number, reason: string) =>
+    req<{ ok: boolean; id: number; status: string }>(
+      `/api/chat/admin/${messageId}/reject`,
+      { method: "POST", token, body: { reason } },
+    ),
+
+  /** Take a message out of a room that is already live (the no-filter mode's control). */
+  chatDelete: (token: string, messageId: number) =>
+    req<{ ok: boolean; id: number; status: string }>(`/api/chat/admin/${messageId}`, {
+      method: "DELETE",
+      token,
+    }),
 
   // ---------- admin ----------
   adminOverview: (token: string) => req<GradeOverview[]>("/api/admin/overview", { token }),

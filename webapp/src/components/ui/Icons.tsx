@@ -241,3 +241,47 @@ export function IconExam({ size = 20, className = "", ...props }: IconProps) {
   );
 }
 
+/** Community chat: two speech bubbles. */
+export function IconChat({ size = 20, className = "", ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+      <path d="M14 9a2 2 0 0 1-2 2H6l-3 3V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2Z" />
+      <path d="M20 9a2 2 0 0 1 2 2v8l-3-3h-4a2 2 0 0 1-2-2v-1" />
+    </svg>
+  );
+}
+
+/** Send a chat message: a paper plane. */
+export function IconSend({ size = 20, className = "", ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+      <path d="m22 2-7 20-4-9-9-4Z" />
+      <path d="M22 2 11 13" />
+    </svg>
+  );
+}
+
+/** Profile picture: a framed photo with a sun and hills. */
+export function IconImage({ size = 20, className = "", ...props }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+      <rect width="18" height="18" x="3" y="3" rx="3" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m20 16-4.5-4.5L6 21" />
+    </svg>
+  );
+}
+
+/** Moderation: a waste bin (admin delete). */
+export function IconTrash({ size = 20, className = "", ...props }: IconProps) {  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
+

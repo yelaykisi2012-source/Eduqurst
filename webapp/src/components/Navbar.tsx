@@ -7,9 +7,17 @@ import {
   IconStar,
   IconGraduationCap,
   IconExam,
+  IconChat,
 } from "./ui/Icons";
 
-export type NavTab = "home" | "lessons" | "exams" | "achievements" | "profile" | "admin";
+export type NavTab =
+  | "home"
+  | "lessons"
+  | "exams"
+  | "chat"
+  | "achievements"
+  | "profile"
+  | "admin";
 
 interface NavbarProps {
   currentTab: NavTab;
@@ -30,13 +38,23 @@ export default function Navbar({
   onChangeGrade,
   isAdmin = false,
 }: NavbarProps) {
-  const tabs = [
-    { key: "home" as NavTab, label: "Bosh sahifa", icon: IconHome },
-    { key: "lessons" as NavTab, label: "Fanlar", icon: IconBook },
-    { key: "exams" as NavTab, label: "Imtihon", icon: IconExam },
-    { key: "achievements" as NavTab, label: "Yutuqlar", icon: IconTrophy },
-    { key: "profile" as NavTab, label: "Profil", icon: IconUser },
-    ...(isAdmin ? [{ key: "admin" as NavTab, label: "Admin", icon: IconSettings }] : []),
+  // `short` is what the 7-column mobile bar can actually fit; desktop shows the
+  // full word. Without it "Bosh sahifa" wraps and the bar jumps in height.
+  const tabs: {
+    key: NavTab;
+    label: string;
+    short: string;
+    icon: typeof IconHome;
+  }[] = [
+    { key: "home", label: "Bosh sahifa", short: "Bosh", icon: IconHome },
+    { key: "lessons", label: "Fanlar", short: "Fanlar", icon: IconBook },
+    { key: "exams", label: "Imtihon", short: "Imtihon", icon: IconExam },
+    { key: "chat", label: "Chat", short: "Chat", icon: IconChat },
+    { key: "achievements", label: "Yutuqlar", short: "Yutuqlar", icon: IconTrophy },
+    { key: "profile", label: "Profil", short: "Profil", icon: IconUser },
+    ...(isAdmin
+      ? [{ key: "admin" as NavTab, label: "Admin", short: "Admin", icon: IconSettings }]
+      : []),
   ];
 
   const handleTabClick = (key: NavTab) => {
@@ -141,7 +159,9 @@ export default function Navbar({
                 >
                   <Icon size={18} className={active ? "text-blue-600" : "text-slate-400"} />
                 </div>
-                <span className="text-[9.5px] tracking-tight mt-0.5 leading-none">{tab.label}</span>
+                <span className="text-[9.5px] tracking-tight mt-0.5 leading-none">
+                  {tab.short}
+                </span>
               </button>
             );
           })}
