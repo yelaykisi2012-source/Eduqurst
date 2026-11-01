@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import type {
   Certificate,
   EligibleCertificate,
@@ -125,6 +125,8 @@ function CertificatesCard({ token }: { token: string }) {
   const [eligible, setEligible] = useState<EligibleCertificate[] | null>(null);
   const [issued, setIssued] = useState<Certificate[]>([]);
   const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState("");
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -132,19 +134,49 @@ function CertificatesCard({ token }: { token: string }) {
     if (!token) return;
     let alive = true;
     setFailed(false);
-    Promise.all([api.eligibleCertificates(token), api.certificates(token)])
-      .then(([courses, certs]) => {
-        if (!alive) return;
-        setEligible(courses);
-        setIssued(certs);
-      })
-      .catch(() => {
-        if (alive) setFailed(true);
-      });
+    setFailure("");
+    setEligible(null);
+
+    const fetchAll = () =>
+      Promise.all([api.eligibleCertificates(token), api.certificates(token)]);
+
+    (async () => {
+      for (let tries = 0; tries < 3; tries += 1) {
+        try {
+          const [courses, certs] = await fetchAll();
+          if (!alive) return;
+          setEligible(courses);
+          setIssued(certs);
+          return;
+        } catch (err) {
+          const retryable =
+            !(err instanceof ApiError) || err.status === 0 || err.status >= 500;
+          if (!retryable || tries === 2) {
+            if (!alive) return;
+            console.warn("Sertifikatlar yuklanmadi:", err);
+            setFailed(true);
+            setFailure(
+              err instanceof ApiError
+                ? err.status === 409
+                  ? "Avval sinfingizni tanlang."
+                  : err.status
+                    ? `Server xatosi (HTTP ${err.status}).`
+                    : "Server bilan aloqa uzildi."
+                : "Server bilan aloqa uzildi.",
+            );
+            return;
+          }
+          // Render free tier can answer 502 while waking up — retry briefly.
+          await new Promise((resolve) => window.setTimeout(resolve, tries === 0 ? 2000 : 5000));
+          if (!alive) return;
+        }
+      }
+    })();
+
     return () => {
       alive = false;
     };
-  }, [token]);
+  }, [token, attempt]);
 
   const refresh = () => {
     api.eligibleCertificates(token).then(setEligible).catch(() => {});
@@ -196,9 +228,22 @@ function CertificatesCard({ token }: { token: string }) {
       </div>
 
       {failed ? (
-        <p className="text-[11px] text-slate-400 mt-3">
-          Sertifikatlarni yuklab bo‘lmadi.
-        </p>
+        <div className="mt-3">
+          <p className="text-[11px] text-slate-400">
+            Sertifikatlarni yuklab bo‘lmadi.
+          </p>
+          {failure && (
+            <p className="text-[10px] text-slate-400 mt-0.5">{failure}</p>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-2"
+            onClick={() => setAttempt((value) => value + 1)}
+          >
+            Qayta urinish
+          </Button>
+        </div>
       ) : eligible === null ? (
         <p className="text-[11px] text-slate-400 mt-3">Yuklanmoqda…</p>
       ) : empty ? (
