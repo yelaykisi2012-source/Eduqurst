@@ -13,6 +13,7 @@ unlocked=false so the Mini App can show a 🔒 instead of hiding progress.
 """
 import json
 import random
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -48,12 +49,25 @@ _TG_API = "https://api.telegram.org"
 
 def _telegram_get_file(file_id: str) -> dict:
     """Ask Telegram where a file we received lives. Kept as a small helper so
-    tests can monkeypatch it without network access."""
+    tests can monkeypatch it without network access.
+
+    Telegram answers a failure with the HTTP status set to its own error_code,
+    and urlopen RAISES on any 4xx. Reading that error body is the whole point:
+    without it the caller loses the reason ("file is too big"), the 413 branch
+    below never runs, and a pupil sees a meaningless "Faylni olishda xatolik"
+    for a video that is simply too large for the Bot API to hand back.
+    """
     token = get_settings().BOT_TOKEN
     url = f"{_TG_API}/bot{token}/getFile?file_id={urllib.parse.quote(file_id)}"
     req = urllib.request.Request(url, headers={"User-Agent": "eduquest"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            return json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            raise exc  # not a Telegram answer we can read: let the caller say so
 
 
 def _telegram_file_stream(path: str):
@@ -239,9 +253,13 @@ def material_file(
     if not info.get("ok"):
         description = str(info.get("description", "")).lower()
         if "too big" in description:
+            # True for the 25 MB video a teacher uploaded: the Bot API will not
+            # hand such a file back to us, so the site genuinely cannot show it.
+            # The bot CAN still deliver it in Telegram (sending by file_id has a
+            # much larger cap), so the line points there instead of shrugging.
             raise HTTPException(
                 status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="Fayl juda katta — uni Telegram bot orqali oling.",
+                detail="Fayl juda katta — saytda ochib bo‘lmaydi. @Edi_Quest_bot orqali so‘rang.",
             )
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="Faylni olishda xatolik")
     path = info["result"]["file_path"]

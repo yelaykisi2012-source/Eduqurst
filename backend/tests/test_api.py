@@ -7,7 +7,10 @@ progress endpoint. Run:  python -m pytest tests/ -v
 """
 from __future__ import annotations
 
+import json
 import time
+import urllib.error
+import urllib.request
 import uuid
 
 from fastapi.testclient import TestClient
@@ -1087,6 +1090,60 @@ def test_material_file_proxy(client: TestClient, monkeypatch):
         lambda fid: {"ok": True, "result": {"file_path": "documents/x.bin"}},
     )
     assert client.get(f"/api/materials/{pdf['id']}/file", headers=stranger).status_code == 403
+
+
+def test_a_too_big_file_is_answered_with_400_and_the_site_says_so(client: TestClient, monkeypatch):
+    """Telegram refuses a big file as HTTP 400 + a JSON body — the body must survive.
+
+    The sibling test above only pretends `_telegram_get_file` returns ok=False,
+    which is NOT what Telegram does: it answers with the error code as the HTTP
+    status, so urlopen RAISES. That is how a 25 MB video on the live site turned
+    into a meaningless "Faylni olishda xatolik" while the "too big" branch sat
+    unreachable. This test drives the real shape of the failure.
+    """
+    from app.routers import content as content_api
+
+    _, _, pdf, video, _ = _file_material_setup(client)
+    pupil = login_as(client, {"id": 888001006, "first_name": "Katta"})
+    pick_grade(client, pupil, "7-sinf")
+
+    answer = {"ok": False, "error_code": 400, "description": "Bad Request: file is too big"}
+
+    class Body:
+        """The smallest thing urllib.error.HTTPError will accept as a response."""
+
+        def __init__(self, raw: bytes) -> None:
+            self._raw = raw
+
+        def read(self) -> bytes:
+            return self._raw
+
+        def close(self) -> None:
+            pass
+
+    telegram_json = json.dumps(answer).encode("utf-8")
+
+    def raise_http_error(payload: bytes, code: int):
+        def boom(req, timeout=None):
+            raise urllib.error.HTTPError(
+                "https://api.telegram.org/botX/getFile", code, "Bad Request", {}, Body(payload)
+            )
+
+        return boom
+
+    monkeypatch.setattr(urllib.request, "urlopen", raise_http_error(telegram_json, 400))
+    # the helper itself keeps Telegram's reason instead of losing it
+    assert content_api._telegram_get_file("BAACfake") == answer
+
+    resp = client.get(f"/api/materials/{video['id']}/file", headers=pupil)
+    assert resp.status_code == 413, resp.text
+    assert "juda katta" in resp.json()["detail"]
+
+    # an unreadable failure body stays an honest 502, not a fake success
+    monkeypatch.setattr(urllib.request, "urlopen", raise_http_error(b"<html>not json</html>", 502))
+    resp = client.get(f"/api/materials/{video['id']}/file", headers=pupil)
+    assert resp.status_code == 502, resp.text
+    assert resp.json()["detail"] == "Faylni olishda xatolik"
 
 
 def test_internal_material_endpoint(client: TestClient):

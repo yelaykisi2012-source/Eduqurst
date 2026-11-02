@@ -80,14 +80,23 @@ function FileMaterialCard({ material, token }: { material: Material; token: stri
 
   return (
     <div className="mt-3">
-      <div className="flex items-center justify-between gap-3 p-4 rounded-2xl border border-blue-100 bg-white shadow-xs">
-        <div className="flex items-center gap-3 min-w-0">
+      {/* Below 420px the two buttons drop under the name instead of sitting
+          beside it. Next to the title they left only ~180px for the file name,
+          so even two lines still ended in "…"; on their own line the name gets
+          the whole card and the teacher can read it. From 420px up the row is
+          side-by-side again, which is what a tablet and a laptop expect. */}
+      <div className="flex flex-col gap-3 p-4 rounded-2xl border border-blue-100 bg-white shadow-xs min-[420px]:flex-row min-[420px]:items-center">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
             {isVideo ? <IconPlay size={20} /> : <IconFileText size={20} />}
           </div>
-          <div className="min-w-0">
-            <h4 className="text-sm font-bold text-slate-800 truncate">{material.title}</h4>
-            <p className="text-xs text-slate-400 truncate">{meta || (isVideo ? "Video darslik" : "PDF fayl")}</p>
+          <div className="min-w-0 flex-1">
+            <h4 className="line-clamp-2 text-sm font-bold leading-snug text-slate-800 [overflow-wrap:anywhere]">
+              {material.title}
+            </h4>
+            <p className="text-xs text-slate-400 truncate">
+              {meta || (isVideo ? "Video darslik" : "PDF fayl")}
+            </p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -104,8 +113,11 @@ function FileMaterialCard({ material, token }: { material: Material; token: stri
             variant="ghost"
             size="sm"
             onClick={handleDownload}
+            aria-label="Faylni yuklab olish"
             icon={<IconDownload size={14} />}
           >
+            {/* The name no longer shares its line with these buttons, so the word
+                fits again — an arrow alone is harder for a pupil to trust. */}
             Yuklab olish
           </Button>
         </div>
