@@ -9,6 +9,8 @@ Relationship map:
   User ─< LessonProgress >— Lesson      (unlock/revisit state)
   User ─< StarLedger                    (every star grant is recorded once)
   User ─< UserAchievement >— Achievement
+  ChatRoom ─< ChatMember >— User        (rooms: class / e'lonxona / staff / group)
+  ChatRoom ─< ChatMessage >— User       (ChatMessage ─< ChatMedia: image|gif|video)
   AdminAccount                          (dashboard login, Stage 8)
 """
 from __future__ import annotations
@@ -70,6 +72,11 @@ class User(Base):
         ForeignKey("grades.id"), index=True, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # A staff member: entered the school's secret teacher code once (in the Mini
+    # App or through the bot). This is NOT the admin flag — admins come from
+    # ADMIN_TELEGRAM_IDS and can moderate everything; a teacher gets the
+    # teachers' room and the e'lonxona, nothing more.
+    is_teacher: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # Daily engagement streak. "Day" is Asia/Tashkent (UTC+5), so it flips at
     # local midnight; last_active_date stores that local date.
     current_streak: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -451,13 +458,148 @@ class UserAvatar(Base):
     )
 
 
+class ChatRoom(Base):
+    """One chat room. A room is a ROW now (it used to be an address made of
+    `kind` + `grade_id`), because a room needs its own name, photo, bio and
+    members — everything the teacher asked for with the "+" button.
+
+    KINDS
+      * "grade" — one per class (1-sinf … 11-sinf). A pupil writes only in their
+        own class room; the class rooms stay the quiet, age-appropriate space.
+      * "news"  — the school e'lonxona. Everybody reads, only staff writes.
+      * "staff" — the teachers' own room. Pupils cannot read or write it, even
+        though every other room is open: it is where teachers talk about pupils.
+      * "group" — created by ANYONE with the "+" button (name + bio + photo +
+        people). Open to read and write for the whole school, by the teacher's
+        choice — which is exactly why a staff member can always delete a message.
+
+    `grade_id` is only set for a class room; UNIQUE (kind, grade_id) therefore
+    allows many group rooms (NULLs never collide).
+    """
+
+    __tablename__ = "chat_rooms"
+    __table_args__ = (UniqueConstraint("kind", "grade_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # "grade" | "news" | "staff" | "group"
+    kind: Mapped[str] = mapped_column(String(8), default="group", server_default="group")
+    grade_id: Mapped[int | None] = mapped_column(
+        ForeignKey("grades.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(64))
+    # What the chat is about — shown under the name in the room header.
+    bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    emoji: Mapped[str] = mapped_column(String(8), default="💬", server_default="💬")
+    # NULL for the rooms the system created (class rooms, e'lonxona, staff room).
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    # A closed room keeps its history but stops accepting messages.
+    is_closed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    grade: Mapped[Grade | None] = relationship()
+    creator: Mapped[User | None] = relationship(foreign_keys=[created_by])
+    members: Mapped[list["ChatMember"]] = relationship(
+        back_populates="room", cascade="all, delete-orphan"
+    )
+
+
+class ChatMember(Base):
+    """Who belongs to a room.
+
+    Only GROUP rooms carry real membership rows: a class room's members are
+    simply that grade's pupils, and storing 11 × N rows per class would duplicate
+    data that already lives in `users.grade_id` (and go stale the day a pupil
+    moves up a grade). Members of an open group chat can join themselves; the
+    `role` only says who is allowed to rename the room.
+    """
+
+    __tablename__ = "chat_members"
+    __table_args__ = (UniqueConstraint("room_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_rooms.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    # "owner" | "member"
+    role: Mapped[str] = mapped_column(String(8), default="owner", server_default="owner")
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    room: Mapped[ChatRoom] = relationship(back_populates="members")
+    user: Mapped[User] = relationship()
+
+
+class ChatRoomAvatar(Base):
+    """A room's picture: same shape as UserAvatar (bytes in Postgres, rotating
+    unguessable slug) for the same reasons — Render wipes the disk on redeploy
+    and an <img> tag cannot send a JWT."""
+
+    __tablename__ = "chat_room_avatars"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_rooms.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    slug: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    mime: Mapped[str] = mapped_column(String(16), default="image/jpeg")
+    width: Mapped[int] = mapped_column(Integer, default=256)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class ChatMedia(Base):
+    """One attached file on one chat message.
+
+    WHY TWO STORAGE PATHS
+      * image / gif — the bytes go straight into Postgres (re-encoded, capped),
+        because a chat list renders many of them at once and relaying each
+        through Telegram would be slow and rate-limited. Same reasoning as
+        UserAvatar.
+      * video — too big for the free database. It is handed to the Telegram bot
+        (the proven path used by lesson materials) and only the `file_id` is
+        kept; the Mini App plays it through the backend proxy, so the bot token
+        never reaches the browser.
+
+    `slug` is the privacy guard on the public media route:
+    /api/chat/media/{slug} — unguessable, and it rotates if a file is replaced.
+    """
+
+    __tablename__ = "chat_media"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    # "image" | "gif" | "video"
+    kind: Mapped[str] = mapped_column(String(6))
+    slug: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    mime: Mapped[str] = mapped_column(String(32), default="image/jpeg")
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Set for image/gif; NULL for video (video lives in Telegram).
+    data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # Set for video only.
+    file_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    message: Mapped[ChatMessage] = relationship(back_populates="media")
+
+
 class ChatMessage(Base):
     """One message in a community chat room.
 
-    Rooms: each grade has its own room (`kind="grade"`, `grade_id` set) so a
-    5-sinf pupil never reads an 11-sinf conversation, plus one school-wide
-    announcement channel (`kind="news"`, `grade_id` NULL) that only admins may
-    write to — the "e'lonxona" the teacher asked for.
+    Rooms: `room_id` points at a row in `chat_rooms` — a class room, the
+    e'lonxona, the teachers' room, or a group a pupil created with the "+"
+    button. See ChatRoom for what each kind allows who to do.
 
     `status` is what makes moderation possible without a rewrite:
       * approved — visible in the room
@@ -469,16 +611,28 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
     __table_args__ = (
         Index("ix_chat_room_visible", "kind", "grade_id", "status", "created_at"),
+        Index("ix_chat_room_id_visible", "room_id", "status", "id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    # "grade" | "news"
+    # The room this message lives in. Since the "+" button exists, a room is a
+    # row (it has a name, a photo, members) and this is the only key that says
+    # where a message belongs — including the rooms that have no grade.
+    room_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chat_rooms.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    # "grade" | "news" | "staff" | "group" — COPIED from the room on write.
+    # It stays so an older Mini App build and the existing index keep working
+    # while the rooms move to `room_id`; app/chat.py is the only place that sets
+    # it, so the two can never disagree.
     kind: Mapped[str] = mapped_column(String(8), default="grade", server_default="grade")
     grade_id: Mapped[int | None] = mapped_column(
         ForeignKey("grades.id", ondelete="CASCADE"), index=True, nullable=True
     )
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    text: Mapped[str] = mapped_column(String(500))
+    # Empty is allowed when the message carries a picture/GIF/video — but
+    # app/chat.py refuses a message that has neither text nor media.
+    text: Mapped[str] = mapped_column(String(500), default="", server_default="")
     # "pending" | "approved" | "rejected" | "deleted"
     status: Mapped[str] = mapped_column(String(9), default="approved", server_default="approved")
     reject_reason: Mapped[str | None] = mapped_column(String(160), nullable=True)
@@ -495,3 +649,9 @@ class ChatMessage(Base):
     user: Mapped[User] = relationship(foreign_keys=[user_id])
     reviewer: Mapped[User | None] = relationship(foreign_keys=[reviewed_by])
     grade: Mapped[Grade | None] = relationship()
+    room: Mapped[ChatRoom | None] = relationship()
+    # One file per message keeps the polling query single-join and matches how
+    # a pupil actually chats: one picture, one video, one thought at a time.
+    media: Mapped[ChatMedia | None] = relationship(
+        back_populates="message", cascade="all, delete-orphan"
+    )

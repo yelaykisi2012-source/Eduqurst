@@ -15,6 +15,14 @@ export interface Profile {
   grade_name: string | null;
   needs_grade_selection: boolean;
   is_admin: boolean;
+  /**
+   * Typed the school's teacher code once → the teachers' room + writing the
+   * e'lonxona. Optional because a backend that predates the field simply omits
+   * it, and the app then treats everybody as a pupil (never a fake "oqituvchi").
+   */
+  is_teacher?: boolean;
+  /** False when TEACHER_CODE is not configured: the "Men o‘qituvchiman" form hides. */
+  can_claim_teacher?: boolean;
   /** Consecutive local (Asia/Tashkent) days with activity — shown as 🔥. */
   current_streak: number;
   max_streak: number;
@@ -361,18 +369,54 @@ export interface Leaderboard {
 
 /**
  * Community chat (GET /api/chat/rooms).
- * kind: "news" = school-wide e'lonxona (only admins may post),
- *       "grade" = one room per grade; a pupil only ever gets their own.
+ *
+ * kind: "news"  = school-wide e'lonxona (only an adult writes it),
+ *       "staff" = the teachers' room — a pupil never receives this row,
+ *       "grade" = one room per grade; a pupil only ever gets their own,
+ *       "group" = a chat the "+" button opened (name, bio, picture, people).
+ *
+ * `id` is how the app addresses a room now (`room_id` on every read/write).
+ * The old (kind, grade_id) pair still works on the server, which is what keeps
+ * a build cached on a pupil's phone working the day the server changes.
  */
 export interface ChatRoom {
+  id: number;
   kind: string;
   grade_id: number | null;
   name: string;
+  /** What the chat is about — shown under the name in the header. */
+  bio: string | null;
   emoji: string;
+  /** Server-relative picture path, e.g. /api/chat/rooms/7/picture/{slug}. */
+  avatar_url: string | null;
   can_post: boolean;
+  /** False for a closed chat: it stays in the list, reading still works. */
+  can_read: boolean;
   is_current_grade: boolean;
+  /** 0 for class rooms — those are the whole grade, not a member list. */
+  member_count: number;
+  /** True when this pupil opened it → rename, people, picture are theirs. */
+  is_mine: boolean;
+  owner_name: string | null;
+  is_closed: boolean;
   /** Newest message id the server has for this room (poll hint). */
   latest_id: number | null;
+}
+
+/**
+ * A file inside a message: a picture, a GIF or a video.
+ * `url` is server-relative and needs NO token (an <img>/<video> tag cannot send
+ * one) — pass it through api.publicUrl(). A video's URL is the backend proxy, so
+ * the bot token never appears anywhere the browser can read.
+ */
+export interface ChatMedia {
+  /** "image" | "gif" | "video" */
+  kind: string;
+  url: string;
+  mime: string;
+  width: number | null;
+  height: number | null;
+  size_bytes: number;
 }
 
 /**
@@ -382,6 +426,7 @@ export interface ChatRoom {
  */
 export interface ChatMessage {
   id: number;
+  room_id: number | null;
   kind: string;
   grade_id: number | null;
   grade_name: string | null;
@@ -389,6 +434,8 @@ export interface ChatMessage {
   author_name: string;
   avatar_url: string | null;
   text: string;
+  /** The picture/GIF/video that came with it, or null for plain text. */
+  media: ChatMedia | null;
   status: string;
   reject_reason: string | null;
   is_me: boolean;
@@ -396,6 +443,7 @@ export interface ChatMessage {
 }
 
 export interface ChatFeed {
+  room_id: number | null;
   kind: string;
   grade_id: number | null;
   /** Oldest first — append as-is. */
@@ -412,6 +460,39 @@ export interface ChatSendResult {
   message_uz: string;
 }
 
+/** POST/PATCH on a room: the fresh row plus an Uzbek line to show as-is. */
+export interface ChatRoomResult {
+  room: ChatRoom;
+  message_uz: string;
+}
+
+/** A person in a group chat's people panel. */
+export interface ChatMember {
+  id: number;
+  name: string;
+  grade_name: string | null;
+  avatar_url: string | null;
+  /** "owner" = whoever pressed "+"; only an adult may take them out. */
+  role: string;
+  is_teacher: boolean;
+  /** True for YOU — the panel then says "Chiqish" instead of "Chiqarish". */
+  is_me: boolean;
+}
+
+/** A row of the "add people" search — deliberately thin (no Telegram id). */
+export interface ChatPerson {
+  id: number;
+  name: string;
+  grade_name: string | null;
+  avatar_url: string | null;
+  is_teacher: boolean;
+  is_me: boolean;
+}
+
+export interface ChatPeopleResult {
+  people: ChatPerson[];
+}
+
 /** A message waiting in the admin moderation queue. */
 export interface ChatPendingItem {
   id: number;
@@ -422,6 +503,8 @@ export interface ChatPendingItem {
   author_name: string;
   avatar_url: string | null;
   text: string;
+  /** A queued picture/GIF/video, so the admin judges what pupils will see. */
+  media: ChatMedia | null;
   created_at: string;
 }
 

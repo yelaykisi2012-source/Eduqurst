@@ -55,6 +55,12 @@ class ProfileResponse(BaseModel):
     needs_grade_selection: bool
     # True when this Telegram id is in ADMIN_TELEGRAM_IDS (Mini App shows admin tab).
     is_admin: bool = False
+    # True once the person typed the school's teacher code: they get the
+    # teachers' room and may write the e'lonxona.
+    is_teacher: bool = False
+    # False when the school has not set TEACHER_CODE yet — the Mini App then
+    # hides the "Men o'qituvchiman" form instead of offering a dead button.
+    can_claim_teacher: bool = False
     # Consecutive local (Asia/Tashkent) days with activity — shown as 🔥.
     current_streak: int = 0
     max_streak: int = 0
@@ -603,16 +609,37 @@ class AvatarOut(BaseModel):
 
 # ---------- community chat ----------
 class ChatSendRequest(BaseModel):
-    """Post to a room. `kind="news"` is the e'lonxona (admin-only writer).
+    """Post to a room. `kind="news"` is the e'lonxona (staff-only writer).
+
+    A room is addressed by `room_id` now (that is what the "+" button returns),
+    but the old (kind, grade_id) pair still works — a Mini App build already
+    open on a pupil's phone must keep working the day the server changes.
 
     `kind` is validated by app/chat.py (400/422 with an Uzbek message) rather
     than by a pydantic pattern, so a wrong room fails the same way everywhere.
     """
 
     text: str
+    room_id: int | None = Field(default=None, ge=1)
     kind: str = "grade"
     # Required for kind="grade"; ignored for news (the room is a grade's, news is not).
     grade_id: int | None = Field(default=None, ge=1)
+
+
+class ChatMediaOut(BaseModel):
+    """The one file attached to a message, already reduced to what a bubble needs.
+
+    `url` is a relative capability path (/api/chat/media/{slug}) — the Mini App
+    prefixes its API base. A video's URL is the backend proxy, so the bot token
+    never appears in anything the browser sees.
+    """
+
+    kind: str                 # "image" | "gif" | "video"
+    url: str
+    mime: str
+    width: int | None = None
+    height: int | None = None
+    size_bytes: int = 0
 
 
 class ChatMessageOut(BaseModel):
@@ -626,6 +653,7 @@ class ChatMessageOut(BaseModel):
     """
 
     id: int
+    room_id: int | None = None
     kind: str
     grade_id: int | None
     grade_name: str | None
@@ -633,6 +661,7 @@ class ChatMessageOut(BaseModel):
     author_name: str
     avatar_url: str | None
     text: str
+    media: ChatMediaOut | None = None
     status: str
     reject_reason: str | None = None
     is_me: bool
@@ -640,19 +669,37 @@ class ChatMessageOut(BaseModel):
 
 
 class ChatRoomOut(BaseModel):
-    """A room the pupil may open (their own grade + the school e'lonxona)."""
+    """A room the pupil may open: the e'lonxona, their own class, the teachers'
+    room (staff only) and every group chat the "+" button created.
 
+    `can_read` is on the object as well as in the fact that it is listed, because
+    the app has to draw a locked row honestly instead of hiding a room that
+    exists (a pupil sees "🧑‍🏫 O‘qituvchilar xonasi — faqat o‘qituvchilar" rather
+    than wondering why a chat is missing).
+    """
+
+    id: int
     kind: str
     grade_id: int | None
     name: str
+    bio: str | None = None
     emoji: str
+    avatar_url: str | None = None
     can_post: bool
+    can_read: bool = True
     is_current_grade: bool
+    # How many people the room lists (0 for class rooms: those are the whole grade).
+    member_count: int = 0
+    # True when this person opened it — the app then offers rename/people actions.
+    is_mine: bool = False
+    owner_name: str | None = None
+    is_closed: bool = False
     # Cache-busting hint for the poller: newest id the server has for this room.
     latest_id: int | None = None
 
 
 class ChatFeedOut(BaseModel):
+    room_id: int | None = None
     kind: str
     grade_id: int | None
     messages: list[ChatMessageOut]
@@ -679,6 +726,7 @@ class ChatPendingItem(BaseModel):
     avatar_url: str | None
     text: str
     created_at: datetime
+    media: ChatMediaOut | None = None
 
 
 class ChatPendingOut(BaseModel):
@@ -699,3 +747,74 @@ class ChatReviewRequest(BaseModel):
     def _strip_reason(cls, value: str | None) -> str | None:
         value = (value or "").strip()
         return value or None
+
+
+class ChatRoomCreateRequest(BaseModel):
+    """The "+" button: a name is enough, a bio and an icon are optional.
+
+    app/chat.py enforces the real bounds (3-48 / 200) so every room field fails
+    with the same Uzbek-shaped 422 as the rest of the chat API.
+    """
+
+    name: str
+    bio: str | None = None
+    emoji: str | None = None
+
+
+class ChatRoomUpdateRequest(BaseModel):
+    """Rename / describe / close. Only fields present are touched.
+
+    `is_closed` is how an owner stops a chat that got out of hand without
+    deleting the history the teacher may still want to read.
+    """
+
+    name: str | None = None
+    bio: str | None = None
+    emoji: str | None = None
+    is_closed: bool | None = None
+
+
+class ChatRoomOutResult(BaseModel):
+    """One room, echoed after create/update (the app re-renders the header)."""
+
+    room: ChatRoomOut
+    message_uz: str
+
+
+class ChatMemberAddRequest(BaseModel):
+    """Add one person by the id the people-search returned."""
+
+    user_id: int = Field(ge=1)
+
+
+class ChatMemberOut(BaseModel):
+    id: int
+    name: str
+    grade_name: str | None
+    avatar_url: str | None
+    role: str            # "owner" | "member"
+    is_teacher: bool = False
+    # Lets the panel say "leave" to yourself and "chiqarish" to an owner — the
+    # app must not guess that from a first name.
+    is_me: bool = False
+
+
+class ChatPersonOut(BaseModel):
+    """A row in the "add people" list — deliberately thin (minimal child data)."""
+
+    id: int
+    name: str
+    grade_name: str | None
+    avatar_url: str | None
+    is_teacher: bool = False
+    is_me: bool = False
+
+
+class ChatPeopleOut(BaseModel):
+    people: list[ChatPersonOut]
+
+
+class TeacherCodeRequest(BaseModel):
+    """The secret the school hands to its teachers (Settings.TEACHER_CODE)."""
+
+    code: str = Field(min_length=1, max_length=64)

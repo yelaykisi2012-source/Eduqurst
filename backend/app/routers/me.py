@@ -4,6 +4,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import avatars, gamification, streaks
+from app import chat as chat_rules
+from app.config import get_settings
 from app.db import get_db
 from app.grades import user_grade
 from app.models import Achievement, Grade, Lesson, LessonProgress, Subject, User, UserAchievement
@@ -14,6 +16,7 @@ from app.schemas import (
     ProgressResponse,
     SetGradeRequest,
     SubjectProgress,
+    TeacherCodeRequest,
 )
 from app.security import get_current_user, is_admin_user
 
@@ -26,6 +29,9 @@ def _profile(db: Session, user: User, grade: Grade | None) -> ProfileResponse:
     `avatar_url` is the capability path of the stored picture (see
     app/avatars.py) — None when the pupil has no picture, which is how the Mini
     App knows to fall back to initials.
+
+    `can_claim_teacher` tells the app whether the school has handed out a code at
+    all. Without it the "Men o‘qituvchiman" form would be a dead button.
     """
     row = avatars.get(db, user.id)
     return ProfileResponse(
@@ -34,6 +40,8 @@ def _profile(db: Session, user: User, grade: Grade | None) -> ProfileResponse:
         grade_name=grade.name if grade else None,
         needs_grade_selection=grade is None,
         is_admin=is_admin_user(user),
+        is_teacher=bool(user.is_teacher),
+        can_claim_teacher=get_settings().teacher_code_set,
         current_streak=user.current_streak or 0,
         max_streak=user.max_streak or 0,
         avatar_url=avatars.public_path(user.id, row.slug) if row else None,
@@ -79,6 +87,41 @@ def select_grade(
     user.grade_id = grade.id
     db.commit()
     return _profile(db, user, grade)
+
+
+@router.post("/me/teacher-code", response_model=ProfileResponse)
+def claim_teacher(
+    body: TeacherCodeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ProfileResponse:
+    """Type the school's teacher code ONCE and become staff.
+
+    This is what opens the teachers' room (and the e'lonxona for writing). It is
+    one-way by design: a person who proved they are a teacher keeps the role,
+    because a pupil could otherwise "un-claim" a colleague's access. Removing a
+    teacher is an admin/DB action, not a button in the Mini App.
+
+    A wrong code returns the same 403 shape as the rest of the API and the
+    account is throttled (see app/chat.py) — the code itself is never echoed.
+    """
+    if user.is_teacher:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "error": "already_teacher",
+                "message_uz": "Siz allaqachon o‘qituvchisiz.",
+            },
+        )
+    if not chat_rules.teacher_claim(db, user, body.code):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "wrong_teacher_code",
+                "message_uz": "Kod noto‘g‘ri. Kodni sizga maktab beradi.",
+            },
+        )
+    return _profile(db, user, user_grade(db, user))
 
 
 @router.get("/me/progress", response_model=ProgressResponse)

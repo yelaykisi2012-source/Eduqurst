@@ -17,6 +17,8 @@ import {
   IconTrophy,
   IconCheck,
   IconDownload,
+  IconEye,
+  IconEyeOff,
   IconGraduationCap,
   IconImage,
   IconLock,
@@ -624,6 +626,124 @@ function AvatarSection({
   );
 }
 
+/**
+ * "Men o‘qituvchiman" — the school's secret code, typed once.
+ *
+ * Three honest states, and nothing in between:
+ *   * already staff  → a purple line, no form (there is no un-becoming);
+ *   * code configured → the form;
+ *   * code NOT set   → the whole section disappears, because a button that can
+ *     never succeed is worse than no button (the rule for every unfinished part
+ *     of this app).
+ * The 429 the server sends after too many guesses is shown as-is: it is already
+ * Uzbek and already says how long to wait.
+ */
+function TeacherSection({
+  profile,
+  token,
+  onSaved,
+  notify,
+}: {
+  profile: Profile | null;
+  token: string;
+  onSaved: () => void | Promise<void>;
+  notify: (msg: string) => void;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [reveal, setReveal] = useState(false);
+
+  if (profile?.is_teacher) {
+    return (
+      <Card className="mb-3.5 sm:mb-6 p-3.5 sm:p-5 border-purple-200/70 bg-purple-50/50">
+        <h2 className="text-xs sm:text-sm font-black text-purple-900">
+          🧑‍🏫 Siz o‘qituvchisiz
+        </h2>
+        <p className="mt-1 text-[11px] sm:text-[12px] font-semibold text-purple-800/80">
+          Chatlar ro‘yxatida «O‘qituvchilar» xonasi ko‘rinadi va e'lonxonaga yozishingiz
+          mumkin. Bu holat orqaga qaytarilmaydi — kerak bo‘lsa administrator bilan
+          bog‘laning.
+        </p>
+      </Card>
+    );
+  }
+
+  // TEACHER_CODE is not in the server's settings → keep the door invisible.
+  if (!profile?.can_claim_teacher) return null;
+
+  const submit = async () => {
+    const value = code.trim();
+    if (value.length === 0) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.claimTeacher(token, value);
+      setCode("");
+      await onSaved();
+      notify("O‘qituvchi huquqi berildi 🧑‍🏫");
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : "Tekshirib bo‘lmadi. Aloqani tekshiring.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="mb-3.5 sm:mb-6 p-3.5 sm:p-5">
+      <h2 className="text-xs sm:text-sm font-black text-slate-900">
+        🧑‍🏫 Men o‘qituvchiman
+      </h2>
+      <p className="mt-0.5 text-[10px] sm:text-[11px] font-semibold text-slate-500 leading-snug">
+        Maktab bergan maxfiy kodni bir marta yozing — o‘qituvchilar xonasi va
+        e'lonxonani yozish huquqi shu bilan ochiladi. Kod o‘quvchilarga berilmaydi.
+      </p>
+      <div className="mt-2.5 flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <input
+            type={reveal ? "text" : "password"}
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value);
+              if (error) setError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submit();
+            }}
+            maxLength={64}
+            autoComplete="off"
+            placeholder="Maktab kodi"
+            className="w-full rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 pr-10 text-[13px] font-semibold text-slate-900 outline-none focus:border-purple-400 focus:bg-white"
+          />
+          <button
+            type="button"
+            onClick={() => setReveal((v) => !v)}
+            aria-label={reveal ? "Kodni yashirish" : "Kodni ko‘rsatish"}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+          >
+            {reveal ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+          </button>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={busy}
+          disabled={code.trim().length === 0}
+          onClick={() => void submit()}
+          icon={busy ? undefined : <IconLock size={14} />}
+        >
+          {busy ? "" : "Tekshirish"}
+        </Button>
+      </div>
+      {error && <p className="mt-1.5 text-[11px] font-bold text-rose-600">{error}</p>}
+    </Card>
+  );
+}
+
 /** Student Profile Page */
 export function ProfilePage({
   profile,
@@ -736,6 +856,14 @@ export function ProfilePage({
       <AvatarSection
         token={token}
         profile={profile}
+        onSaved={onProfileRefresh}
+        notify={notify}
+      />
+
+      {/* Teacher code — only rendered when the school actually handed codes out */}
+      <TeacherSection
+        profile={profile}
+        token={token}
         onSaved={onProfileRefresh}
         notify={notify}
       />

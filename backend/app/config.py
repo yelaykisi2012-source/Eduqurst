@@ -8,6 +8,11 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The shortest teacher code worth handing out. One constant, honoured in two
+# places (Settings.teacher_code_set and chat.teacher_code_ok), so the Mini App
+# can never show a form whose code could never be accepted.
+TEACHER_CODE_MIN_LENGTH = 8
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -33,6 +38,27 @@ class Settings(BaseSettings):
     # every room). Children type slowly; this only stops copy-paste flooding.
     CHAT_RATE_LIMIT: int = 10
     CHAT_RATE_WINDOW_SECONDS: int = 60
+    # The secret a teacher types once to become staff (teachers' room + the
+    # right to write the e'lonxona). Empty = nobody can claim staff from the app,
+    # so the feature stays off until the school puts a code in Render.
+    TEACHER_CODE: str = ""
+    # Chat attachments. Picture/GIF bytes are stored in Postgres (a free database
+    # has a size limit, so these caps are deliberate), video is relayed to
+    # Telegram and only its file_id is kept.
+    CHAT_IMAGE_MAX_BYTES: int = 2 * 1024 * 1024
+    CHAT_VIDEO_MAX_BYTES: int = 10 * 1024 * 1024
+    # How many files one person may throw into chats per day (flood guard).
+    CHAT_MEDIA_PER_DAY: int = 30
+
+    @property
+    def teacher_code_set(self) -> bool:
+        """True when the school handed out a code that could actually work.
+
+        A 3-letter TEACHER_CODE is not a door to the teachers' room, so it is
+        treated as "not set": the Mini App keeps the form hidden rather than
+        offering a guess nobody can win.
+        """
+        return len(self.TEACHER_CODE.strip()) >= TEACHER_CODE_MIN_LENGTH
 
     @property
     def cors_origin_list(self) -> list[str]:

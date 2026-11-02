@@ -18,8 +18,11 @@ import type {
   Avatar,
   Certificate,
   ChatFeed,
+  ChatMember,
   ChatPendingQueue,
+  ChatPeopleResult,
   ChatRoom,
+  ChatRoomResult,
   ChatSendResult,
   EligibleCertificate,
   ExamCard,
@@ -336,29 +339,118 @@ export const api = {
 
   // ---------- community chat ----------
 
-  /** Rooms the caller may open: e'lonxona + own grade (an admin sees every grade). */
+  /**
+   * Every room this person may open, already in the order the app shows them:
+   * e'lonxona, the teachers' room (adults only), their own class, then the group
+   * chats the "+" button created.
+   */
   chatRooms: (token: string) => req<ChatRoom[]>("/api/chat/rooms", { token }),
+
+  /** Open a chat: name is enough, bio and an icon are optional (3–48 / 200 chars). */
+  chatCreateRoom: (
+    token: string,
+    body: { name: string; bio?: string | null; emoji?: string | null },
+  ) => req<ChatRoomResult>("/api/chat/rooms", { method: "POST", token, body }),
+
+  /** Rename / describe / change the icon / close a chat (owner or an adult). */
+  chatUpdateRoom: (
+    token: string,
+    roomId: number,
+    body: { name?: string; bio?: string | null; emoji?: string; is_closed?: boolean },
+  ) =>
+    req<ChatRoomResult>(`/api/chat/rooms/${roomId}`, {
+      method: "PATCH",
+      token,
+      body,
+    }),
+
+  /** The chat's picture: the server crops it to a 256px square, EXIF stripped. */
+  chatRoomPicture: (token: string, roomId: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return uploadMultipart<ChatRoomResult>(
+      `/api/chat/rooms/${roomId}/picture`,
+      token,
+      form,
+      "Rasmni yuklab bo‘lmadi",
+    );
+  },
+
+  chatRoomPictureRemove: (token: string, roomId: number) =>
+    req<ChatRoomResult>(`/api/chat/rooms/${roomId}/picture`, {
+      method: "DELETE",
+      token,
+    }),
 
   /**
    * One page of a room, oldest first. First open: omit `afterId` and the newest
    * 40 arrive. Later polls send back the `latest_id` you rendered and only what
    * is newer comes through — that is how polling stays cheap.
    */
-  chatMessages: (
-    token: string,
-    room: { kind: string; gradeId: number | null },
-    afterId?: number | null,
-  ) => {
-    const params = new URLSearchParams({ kind: room.kind });
-    if (room.gradeId != null) params.set("grade_id", String(room.gradeId));
+  chatMessages: (token: string, roomId: number, afterId?: number | null) => {
+    const params = new URLSearchParams({ room_id: String(roomId) });
     if (afterId != null) params.set("after_id", String(afterId));
     return req<ChatFeed>(`/api/chat/messages?${params.toString()}`, { token });
   },
 
-  chatSend: (
-    token: string,
-    body: { text: string; kind: string; grade_id?: number | null },
-  ) => req<ChatSendResult>("/api/chat/messages", { method: "POST", token, body }),
+  chatSend: (token: string, body: { text: string; roomId: number }) =>
+    req<ChatSendResult>("/api/chat/messages", {
+      method: "POST",
+      token,
+      body: { text: body.text, room_id: body.roomId },
+    }),
+
+  /**
+   * A message WITH a file (picture ≤2 MB, GIF ≤2 MB, video ≤10 MB — the server
+   * answers with an Uzbek line the composer shows as-is). `file_too_big` (413),
+   * `file_rejected`/`bad_file_type` (422) and `media_quota` (429) all arrive
+   * through ApiError.code, so the bubble never appears half-sent.
+   */
+  chatAttach: (token: string, roomId: number, file: File, text: string) => {
+    const form = new FormData();
+    form.append("room_id", String(roomId));
+    if (text.trim()) form.append("text", text.trim());
+    form.append("file", file);
+    return uploadMultipart<ChatSendResult>(
+      "/api/chat/messages/attach",
+      token,
+      form,
+      "Faylni yuborib bo‘lmadi",
+    );
+  },
+
+  /** The "add people" list: a name, a class and a picture — nothing else. */
+  chatPeople: (token: string, q: string) =>
+    req<ChatPeopleResult>(`/api/chat/people?q=${encodeURIComponent(q)}`, { token }),
+
+  chatMembers: (token: string, roomId: number) =>
+    req<ChatMember[]>(`/api/chat/rooms/${roomId}/members`, { token }),
+
+  /** Put yourself in the room's people list (group chats only). */
+  chatJoin: (token: string, roomId: number) =>
+    req<ChatMember[]>(`/api/chat/rooms/${roomId}/join`, { method: "POST", token }),
+
+  chatAddMember: (token: string, roomId: number, userId: number) =>
+    req<ChatMember[]>(`/api/chat/rooms/${roomId}/members`, {
+      method: "POST",
+      token,
+      body: { user_id: userId },
+    }),
+
+  /** A person leaves; an owner/staff takes somebody else out. */
+  chatRemoveMember: (token: string, roomId: number, personId: number) =>
+    req<{ ok: boolean }>(`/api/chat/rooms/${roomId}/members/${personId}`, {
+      method: "DELETE",
+      token,
+    }),
+
+  /**
+   * The school's secret, typed once (POST /api/me/teacher-code). 403 means the
+   * code was wrong, 429 "too_many_attempts" means wait — retry-after is in
+   * ApiError.status and the message is already Uzbek.
+   */
+  claimTeacher: (token: string, code: string) =>
+    req<Profile>("/api/me/teacher-code", { method: "POST", token, body: { code } }),
 
   /** Admin: the approval queue plus the global count that drives the badge. */
   chatPending: (token: string, gradeId?: number | null) =>

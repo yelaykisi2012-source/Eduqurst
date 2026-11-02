@@ -62,7 +62,11 @@ def test_admin_rooms_cover_every_grade(client: TestClient):
     rooms = client.get("/api/chat/rooms", headers=admin(client)).json()
     grades = [r for r in rooms if r["kind"] == "grade"]
     assert len(grades) == 11, "the admin must be able to reach every class"
-    assert rooms[0]["kind"] == "news" and rooms[0]["can_post"] is True
+    # Adults see their own room on top, then the e'lonxona (the app's order is
+    # staff -> news -> classes -> group chats, so a grown-up never hunts for it).
+    assert rooms[0]["kind"] == "staff" and rooms[0]["can_post"] is True
+    news = next(r for r in rooms if r["kind"] == "news")
+    assert news["can_post"] is True
 
 
 def test_pupil_without_a_grade_sees_only_the_announcements(client: TestClient):
@@ -126,7 +130,10 @@ def test_an_admin_writes_the_news_channel_and_pupils_read_it(client: TestClient)
 def test_a_pupil_cannot_write_the_news_channel(client: TestClient):
     resp = post(client, pupil(client, 772000108, "Otabek", "4-sinf"), "Men ham yozaman", kind="news")
     assert resp.status_code == 403
-    assert resp.json()["detail"]["error"] == "news_admin_only"
+    body = resp.json()["detail"]
+    # One code for both adults-only rooms; the Uzbek line still names the room.
+    assert body["error"] == "staff_only"
+    assert "o‘qituvchi" in body["message_uz"]
 
 
 def test_pupils_need_a_grade_before_using_a_room(client: TestClient):
@@ -151,6 +158,24 @@ def test_message_length_and_shape_are_checked(client: TestClient):
     many_lines = post(client, auth, "1\n2\n3\n4\n5")
     assert many_lines.status_code == 422
     assert many_lines.json()["detail"]["error"] == "too_many_lines"
+
+
+def test_a_single_emoji_is_a_whole_message(client: TestClient):
+    """The Mini App puts "👍" one tap from the send button, so it must land.
+
+    TEXT_MIN counts the characters a pupil SEES, not the code points in the
+    string: "❤️" is two code points and one heart, "👍🏽" is two and one thumb.
+    A one-letter message stays refused — that is a slip of a finger, not a
+    reaction.
+    """
+    auth = pupil(client, 772000130, "Qaymoq", "6-sinf")
+    for one in ("🔥", "👍", "❤️", "👍🏽"):
+        ok = post(client, auth, one)
+        assert ok.status_code == 201, f"{one!r} -> {ok.text}"
+    for junk in ("a", ".", " - "):
+        refused = post(client, auth, junk)
+        assert refused.status_code == 422, f"{junk!r} was accepted"
+        assert refused.json()["detail"]["error"] == "text_too_short"
 
 
 def test_room_address_is_validated(client: TestClient):

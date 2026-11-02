@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../api";
 import type {
   ChatFeed,
+  ChatMedia,
+  ChatMember,
   ChatMessage,
   ChatPendingQueue,
   ChatRoom,
@@ -14,11 +16,27 @@ import Badge from "./ui/Badge";
 import EmptyState from "./ui/EmptyState";
 import {
   IconChat,
+  IconEdit,
+  IconPaperclip,
+  IconPlus,
   IconRefresh,
   IconSend,
   IconTrash,
+  IconUsers,
   IconCheck,
 } from "./ui/Icons";
+import {
+  AvatarDot,
+  EmojiStrip,
+  Lightbox,
+  MediaBubble,
+  RoomBadge,
+  StagedFile,
+  fileSize,
+  kindLabel,
+  stamp,
+} from "./chat/ChatBits";
+import { PeopleSheet, RoomFormSheet } from "./chat/RoomSheets";
 
 interface ChatPageProps {
   token: string;
@@ -36,25 +54,20 @@ const POLL_MS = 7000;
 /** A feed longer than this is trimmed from the top (nobody scrolls 500 back). */
 const KEEP_MESSAGES = 200;
 
-/** Room address as the API sends it (news has no grade). */
-interface RoomRef {
-  kind: string;
-  gradeId: number | null;
-}
-
 /**
- * Either shape: our own `{kind, gradeId}` state or a `ChatRoom` straight from
- * the server (`grade_id`). Comparing them through one helper is what keeps the
- * active-room highlight and the "did the room change?" guards honest.
+ * The section order the school asked for: the admin's e'lonxona first, then the
+ * teachers, then the pupils' own class, then whatever chats pupils opened.
+ * app/chat.py already returns rooms in this order — sorting again here is what
+ * keeps the layout honest if the server ever returns them differently.
  */
-type RoomLike = { kind: string; gradeId?: number | null; grade_id?: number | null };
+const SECTION_ORDER = ["news", "staff", "grade", "group"];
 
-const gradeOf = (room: RoomLike): number | null => room.gradeId ?? room.grade_id ?? null;
+/** What the browser may claim for a chat file (the server re-checks the bytes). */
+const PICKER_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,video/*";
 
-const sameRoom = (a: RoomLike | null, b: RoomLike | null) =>
-  a !== null && b !== null && a.kind === b.kind && gradeOf(a) === gradeOf(b);
-
-const roomKey = (room: RoomLike) => `${room.kind}:${gradeOf(room) ?? "-"}`;
+/** Same caps as Settings.CHAT_IMAGE_MAX_BYTES / CHAT_VIDEO_MAX_BYTES. */
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 10 * 1024 * 1024;
 
 /**
  * Merge a poll delta into what is already rendered.
@@ -71,56 +84,13 @@ function mergeById(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage
   return [...byId.values()].sort((a, b) => a.id - b.id).slice(-KEEP_MESSAGES);
 }
 
-/** "14:32" for today, "05.11" for an older day — both in the pupils' own timezone. */
-function stamp(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const zone = "Asia/Tashkent";
-  const opts: Intl.DateTimeFormatOptions = { timeZone: zone };
-  const now = new Date().toLocaleDateString("en-CA", opts);
-  const then = date.toLocaleDateString("en-CA", opts);
-  return then === now
-    ? new Intl.DateTimeFormat("en-GB", { ...opts, hour: "2-digit", minute: "2-digit" }).format(date)
-    : new Intl.DateTimeFormat("en-GB", { ...opts, day: "2-digit", month: "2-digit" }).format(date);
-}
-
-/** Initials for pupils without a picture — the same fallback everywhere. */
-function initials(name: string): string {
-  return (name.trim().charAt(0) || "?").toUpperCase();
-}
-
-function AvatarDot({
-  name,
-  avatarUrl,
-  size = 28,
-}: {
-  name: string;
-  avatarUrl: string | null;
-  size?: number;
-}) {
-  const url = api.publicUrl(avatarUrl);
-  if (url) {
-    return (
-      <img
-        src={url}
-        alt=""
-        width={size}
-        height={size}
-        loading="lazy"
-        className="shrink-0 rounded-full object-cover ring-1 ring-slate-200"
-        style={{ width: size, height: size }}
-      />
-    );
-  }
-  return (
-    <span
-      className="flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#3478F6] to-indigo-600 font-black text-white"
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
-      aria-hidden
-    >
-      {initials(name)}
-    </span>
-  );
+/** Rooms in section order, group chats newest-first inside their own section. */
+function groupRooms(rooms: ChatRoom[]): ChatRoom[] {
+  return [...rooms].sort((a, b) => {
+    const byKind = SECTION_ORDER.indexOf(a.kind) - SECTION_ORDER.indexOf(b.kind);
+    if (byKind !== 0) return byKind;
+    return (b.latest_id ?? 0) - (a.latest_id ?? 0) || b.id - a.id;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +104,7 @@ function ModerationQueue({
   onReject,
   onDelete,
   onRefresh,
+  onOpenMedia,
 }: {
   queue: ChatPendingQueue | null;
   busyId: number | null;
@@ -141,6 +112,7 @@ function ModerationQueue({
   onReject: (id: number, reason: string) => void;
   onDelete: (id: number) => void;
   onRefresh: () => void;
+  onOpenMedia: (media: ChatMedia) => void;
 }) {
   // Which message is currently being refused, and the reason typed for it.
   const [refusing, setRefusing] = useState<number | null>(null);
@@ -210,7 +182,7 @@ function ModerationQueue({
                   <p className="text-[11px] sm:text-xs font-bold text-slate-800 truncate">
                     {item.author_name}
                     <span className="ml-1 font-semibold text-slate-400">
-                      · {item.kind === "news" ? "E'lonxona" : item.grade_name ?? "sinf"}
+                      · {kindLabel(item.kind)}
                     </span>
                   </p>
                   <p className="text-[10px] font-semibold text-slate-400">
@@ -219,9 +191,19 @@ function ModerationQueue({
                 </div>
               </div>
 
-              <p className="mt-1.5 text-[11px] sm:text-xs font-medium text-slate-700 whitespace-pre-wrap break-words">
-                {item.text}
-              </p>
+              {item.text && (
+                <p className="mt-1.5 text-[11px] sm:text-xs font-medium text-slate-700 whitespace-pre-wrap break-words">
+                  {item.text}
+                </p>
+              )}
+
+              {/* A queued picture must be judged as a picture, not as text: this
+                  is the only place an adult sees it before pupils do. */}
+              {item.media && (
+                <div className="mt-1.5 max-w-[220px]">
+                  <MediaBubble media={item.media} onOpen={onOpenMedia} />
+                </div>
+              )}
 
               {refusing === item.id ? (
                 <div className="mt-2 space-y-1.5">
@@ -307,7 +289,7 @@ export default function ChatPage({
   const [rooms, setRooms] = useState<ChatRoom[] | null>(null);
   const [roomsError, setRoomsError] = useState("");
   const [roomsRetry, setRoomsRetry] = useState(0);
-  const [active, setActive] = useState<RoomRef | null>(null);
+  const [activeId, setActiveId] = useState<number | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [latestId, setLatestId] = useState<number | null>(null);
@@ -316,37 +298,78 @@ export default function ChatPage({
   const [firstLoad, setFirstLoad] = useState(true);
 
   const [draft, setDraft] = useState("");
+  const [staged, setStaged] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
+  const [showEmoji, setShowEmoji] = useState(false);
 
   const [queue, setQueue] = useState<ChatPendingQueue | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
+  // Sheets: "+" (create), the gear on the active room (edit), the people panel.
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editRoom, setEditRoom] = useState<ChatRoom | null>(null);
+  const [peopleFor, setPeopleFor] = useState<ChatRoom | null>(null);
+  const [lightbox, setLightbox] = useState<ChatMedia | null>(null);
+
+  // Newest id the pupil has actually seen per room — drives the unread dot.
+  const [seen, setSeen] = useState<Record<number, number>>({});
+
   // The poller reads the room + cursor from refs, so a room switch never leaves a
   // timer polling the previous room with a stale cursor.
   const latestRef = useRef<number | null>(null);
-  const roomRef = useRef<RoomRef | null>(null);
+  const roomRef = useRef<number | null>(null);
   const feedBox = useRef<HTMLDivElement | null>(null);
   const roomStrip = useRef<HTMLDivElement | null>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
 
-  // Eleven room chips do not fit on a 360px phone, so the strip scrolls. When a
-  // pupil opens their own class room the chip is often the one that is off
-  // screen — bring it back into view, otherwise the bar looks like the tap did
-  // nothing. block:"nearest" keeps the page from jumping vertically.
-  useEffect(() => {
-    const strip = roomStrip.current;
-    if (!strip) return;
-    strip
-      .querySelector<HTMLElement>('[data-active="true"]')
-      ?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
-  }, [active, rooms]);
-
+  const ordered = useMemo(() => (rooms ? groupRooms(rooms) : null), [rooms]);
   const activeRoom = useMemo(
-    () => (active ? (rooms ?? []).find((r) => sameRoom(r, active)) ?? null : null),
-    [active, rooms],
+    () => (rooms ?? []).find((r) => r.id === activeId) ?? null,
+    [activeId, rooms],
   );
 
+  // Who may change this room: the pupil who opened it, or an adult.
+  const canManageRoom = !!activeRoom && (activeRoom.is_mine || isAdmin);
+
+  // A group chat counts its members; a class/e'lonxona does not (member_count 0).
+  const memberCount = (activeRoom?.member_count ?? 0) > 0 ? activeRoom?.member_count : null;
+
   // ---------------------------------------------------------------- rooms
+  /**
+   * Refresh the room list, keeping the open chat.
+   *
+   * `keep` is the id the pupil is looking at: after a create/rename we pass the
+   * saved room so the app lands on it, otherwise the current one is preserved.
+   */
+  const loadRooms = useCallback(
+    async (keep?: number | null) => {
+      try {
+        const list = await api.chatRooms(token);
+        setRooms(list);
+        setRoomsError("");
+        setActiveId((current) => {
+          const wanted = keep ?? current;
+          if (wanted != null && list.some((r) => r.id === wanted)) return wanted;
+          // Prefer the pupil's own class; the e'lonxona is the fallback reading room.
+          const mine =
+            list.find((r) => r.is_current_grade) ??
+            list.find((r) => r.kind === "grade") ??
+            list[0] ??
+            null;
+          return mine?.id ?? null;
+        });
+      } catch (e) {
+        setRoomsError(
+          e instanceof ApiError
+            ? e.message
+            : "Xonalarni yuklab bo‘lmadi. Internetni tekshiring.",
+        );
+      }
+    },
+    [token],
+  );
+
   useEffect(() => {
     let alive = true;
     setRooms(null);
@@ -362,7 +385,7 @@ export default function ChatPage({
           list.find((r) => r.kind === "grade") ??
           list[0] ??
           null;
-        if (mine) setActive({ kind: mine.kind, gradeId: mine.grade_id });
+        if (mine) setActiveId(mine.id);
       })
       .catch((e: unknown) => {
         if (!alive) return;
@@ -379,40 +402,42 @@ export default function ChatPage({
 
   // ------------------------------------------------------------- feed load
   const openRoom = useCallback(
-    async (room: RoomRef) => {
+    async (roomId: number) => {
       setFirstLoad(true);
       setFeedError("");
       setNeedGrade(false);
       try {
-        const feed: ChatFeed = await api.chatMessages(token, room);
-        if (!sameRoom(roomRef.current, room)) return;
+        const feed: ChatFeed = await api.chatMessages(token, roomId);
+        if (roomRef.current !== roomId) return;
         setMessages(feed.messages);
         latestRef.current = feed.latest_id;
         setLatestId(feed.latest_id);
+        if (feed.latest_id != null) {
+          setSeen((prev) => ({ ...prev, [roomId]: feed.latest_id as number }));
+        }
       } catch (e) {
-        if (!sameRoom(roomRef.current, room)) return;
+        if (roomRef.current !== roomId) return;
         setMessages([]);
         if (e instanceof ApiError && e.code === "grade_not_selected") setNeedGrade(true);
-        else
-          setFeedError(
-            e instanceof ApiError ? e.message : "Xabalarni yuklab bo‘lmadi.",
-          );
+        else setFeedError(e instanceof ApiError ? e.message : "Xabalarni yuklab bo‘lmadi.");
       } finally {
-        if (sameRoom(roomRef.current, room)) setFirstLoad(false);
+        if (roomRef.current === roomId) setFirstLoad(false);
       }
     },
     [token],
   );
 
   useEffect(() => {
-    roomRef.current = active;
+    roomRef.current = activeId;
     latestRef.current = null;
     setMessages([]);
     setLatestId(null);
     setSendError("");
-    if (active) void openRoom(active);
+    setStaged(null);
+    setDraft("");
+    if (activeId != null) void openRoom(activeId);
     else setFirstLoad(false);
-  }, [active, openRoom]);
+  }, [activeId, openRoom]);
 
   // Jump to the newest message when a room opens.
   useEffect(() => {
@@ -425,16 +450,16 @@ export default function ChatPage({
 
   // ------------------------------------------------------------- polling
   useEffect(() => {
-    if (!active || firstLoad) return;
+    if (activeId === null || firstLoad) return;
     let alive = true;
 
     const tick = async () => {
       // A hidden Mini App should not spend the pupil's data — wait for a focus.
-      if (document.hidden || !roomRef.current) return;
-      const room = roomRef.current;
+      if (document.hidden || roomRef.current === null) return;
+      const roomId = roomRef.current;
       try {
-        const feed = await api.chatMessages(token, room, latestRef.current ?? undefined);
-        if (!alive || !sameRoom(roomRef.current, room)) return;
+        const feed = await api.chatMessages(token, roomId, latestRef.current ?? undefined);
+        if (!alive || roomRef.current !== roomId) return;
         if (feed.messages.length > 0) {
           const box = feedBox.current;
           const nearBottom =
@@ -448,6 +473,7 @@ export default function ChatPage({
         if (feed.latest_id != null && feed.latest_id > (latestRef.current ?? 0)) {
           latestRef.current = feed.latest_id;
           setLatestId(feed.latest_id);
+          setSeen((prev) => ({ ...prev, [roomId]: feed.latest_id as number }));
         }
         setFeedError("");
       } catch {
@@ -465,7 +491,17 @@ export default function ChatPage({
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [active, firstLoad, token]);
+  }, [activeId, firstLoad, token]);
+
+  // The room list itself is refreshed occasionally, so a chat somebody else
+  // opened shows up without the pupil reloading the page.
+  useEffect(() => {
+    if (rooms === null) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void loadRooms(activeId);
+    }, POLL_MS * 9);
+    return () => window.clearInterval(timer);
+  }, [activeId, loadRooms, rooms === null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ------------------------------------------------------- admin queue
   const refreshQueue = useCallback(async () => {
@@ -488,11 +524,7 @@ export default function ChatPage({
   }, [isAdmin, refreshQueue]);
 
   const decide = useCallback(
-    async (
-      id: number,
-      action: "approve" | "reject" | "delete",
-      reason?: string,
-    ) => {
+    async (id: number, action: "approve" | "reject" | "delete", reason?: string) => {
       setBusyId(id);
       try {
         if (action === "approve") await api.chatApprove(token, id);
@@ -508,7 +540,7 @@ export default function ChatPage({
         // The room the message lives in may be the one on screen — refetch the delta.
         await refreshQueue();
         const room = roomRef.current;
-        if (room) void openRoom(room);
+        if (room !== null) void openRoom(room);
       } catch (e) {
         notify(e instanceof ApiError ? e.message : "Amalni bajarsa bo‘lmadi.");
       } finally {
@@ -519,47 +551,89 @@ export default function ChatPage({
   );
 
   // ------------------------------------------------------------- sending
+
+  /** A pick that cannot pass the server's check is stopped here, in Uzbek. */
+  const pickFile = (file: File | null) => {
+    if (!file) return;
+    const isVideo = file.type.startsWith("video/");
+    const cap = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+    if (file.size > cap) {
+      setSendError(
+        `${isVideo ? "Video" : "Rasm"} juda katta (${fileSize(file.size)}). ` +
+          `Kamida ${fileSize(cap)} kichikroq fayl tanlang.`,
+      );
+      return;
+    }
+    if (!file.type.startsWith("image/") && !isVideo) {
+      setSendError("Faqat rasm, GIF yoki video yuborish mumkin.");
+      return;
+    }
+    setStaged(file);
+    setSendError("");
+  };
+
   const send = async () => {
+    if (!activeRoom || sending) return;
     const text = draft.trim();
-    if (!activeRoom || text.length === 0 || sending) return;
+    if (text.length === 0 && !staged) return;
     setSending(true);
     setSendError("");
     try {
-      const result: ChatSendResult = await api.chatSend(
-        token,
-        {
-          text,
-          kind: activeRoom.kind,
-          grade_id: activeRoom.grade_id,
-        },
-      );
+      const result: ChatSendResult = staged
+        ? await api.chatAttach(token, activeRoom.id, staged, text)
+        : await api.chatSend(token, { text, roomId: activeRoom.id });
       // Append right away (the pupil must see their own message immediately),
       // then move the cursor past it — dedupe by id protects the next poll.
       setMessages((prev) => mergeById(prev, [result.message]));
       if (result.message.id > (latestRef.current ?? 0)) {
         latestRef.current = result.message.id;
         setLatestId(result.message.id);
+        setSeen((prev) => ({ ...prev, [activeRoom.id]: result.message.id }));
       }
       setDraft("");
+      setStaged(null);
+      setShowEmoji(false);
       notify(result.message_uz);
       const box = feedBox.current;
-      if (box) window.requestAnimationFrame(() => {
-        box.scrollTop = box.scrollHeight;
-      });
+      if (box)
+        window.requestAnimationFrame(() => {
+          box.scrollTop = box.scrollHeight;
+        });
       if (isAdmin) void refreshQueue();
+      // A brand-new chat only exists in the list after the server says so.
+      void loadRooms(activeRoom.id);
     } catch (e) {
-      // Keep the draft: a refused message should never be typed out twice.
+      // Keep the draft AND the file: a refused upload should never be picked twice.
       setSendError(
-        e instanceof ApiError
-          ? e.message
-          : "Yuborib bo‘lmadi. Aloqani tekshiring.",
+        e instanceof ApiError ? e.message : "Yuborib bo‘lmadi. Aloqani tekshiring.",
       );
     } finally {
       setSending(false);
     }
   };
 
+  /** A sheet saved a room: merge it into the list and open it. */
+  const roomSaved = (saved: ChatRoom, created: boolean) => {
+    setRooms((prev) => {
+      const list = prev ?? [];
+      const without = list.filter((r) => r.id !== saved.id);
+      return [...without, saved];
+    });
+    setActiveId(saved.id);
+    setSeen((prev) => ({ ...prev, [saved.id]: saved.latest_id ?? 0 }));
+    notify(created ? `«${saved.name}» ochildi ✅` : "Saqlandi ✅");
+    if (created) void loadRooms(saved.id);
+  };
+
+  const onMembersChanged = (list: ChatMember[]) => {
+    if (!peopleFor) return;
+    setRooms((prev) =>
+      (prev ?? []).map((r) => (r.id === peopleFor.id ? { ...r, member_count: list.length } : r)),
+    );
+  };
+
   const canPost = activeRoom?.can_post ?? false;
+  const canRead = activeRoom?.can_read ?? true;
 
   return (
     <div className="mx-auto max-w-2xl animate-fade-in py-1 pb-32 sm:pb-12">
@@ -571,10 +645,10 @@ export default function ChatPage({
           onReject={(id, reason) => void decide(id, "reject", reason)}
           onDelete={(id) => void decide(id, "delete")}
           onRefresh={() => void refreshQueue()}
+          onOpenMedia={(media) => setLightbox(media)}
         />
       )}
 
-      {/* Rooms strip: E'lonxona + the pupil's class (an admin: every class). */}
       {roomsError ? (
         <Card className="p-4 border-rose-200 bg-rose-50/50 text-center">
           <p className="text-xs font-bold text-rose-700">{roomsError}</p>
@@ -588,7 +662,7 @@ export default function ChatPage({
             Qayta urinish
           </Button>
         </Card>
-      ) : rooms === null ? (
+      ) : ordered === null ? (
         <div className="py-10 text-center">
           <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
           <p className="mt-3 text-sm font-semibold text-slate-500">
@@ -597,54 +671,107 @@ export default function ChatPage({
         </div>
       ) : (
         <>
-          <Card
-            variant="elevated"
-            padding="none"
-            className="p-3 sm:p-4 bg-gradient-to-r from-[#3478F6] via-blue-600 to-indigo-700 text-white border-0 mb-2.5"
-          >
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20 backdrop-blur-md">
-                <IconChat size={20} />
-              </div>
-              <div className="min-w-0">
-                <h1 className="text-sm sm:text-lg font-black leading-tight truncate">
-                  Jamoat chati
-                </h1>
-                <p className="text-[10px] sm:text-[11px] font-semibold text-blue-100 truncate">
-                  {gradeName
-                    ? `${gradeName} xonasi va butun maktab e'lonxonasi`
-                    : "Sinfingiz xonasi va e'lonxona"}
-                </p>
-              </div>
-            </div>
-          </Card>
-
+          {/* ------------------------------------------------- rooms strip */}
           <div
             ref={roomStrip}
-            className="no-scrollbar -mx-0.5 flex snap-x gap-1.5 overflow-x-auto px-0.5 pb-1.5"
+            className="no-scrollbar -mx-0.5 flex items-center gap-1.5 overflow-x-auto px-0.5 pb-2"
           >
-            {rooms.map((room) => {
-              const on = sameRoom(active, room);
+            {ordered.map((room) => {
+              const on = room.id === activeId;
+              const unread = (room.latest_id ?? 0) > (seen[room.id] ?? 0) && !on;
               return (
                 <button
-                  key={roomKey(room)}
+                  key={room.id}
                   data-active={on ? "true" : undefined}
-                  onClick={() => setActive({ kind: room.kind, gradeId: room.grade_id })}
+                  onClick={() => setActiveId(room.id)}
                   className={`shrink-0 snap-start inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] sm:text-xs font-bold border transition-colors cursor-pointer whitespace-nowrap ${
                     on
                       ? "bg-blue-600 text-white border-blue-600 shadow-xs"
                       : "bg-white text-slate-700 border-slate-200 hover:border-blue-300"
                   }`}
                 >
-                  <span aria-hidden>{room.emoji}</span>
+                  {room.avatar_url ? (
+                    <img
+                      src={api.publicUrl(room.avatar_url)}
+                      alt=""
+                      className="h-4 w-4 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span aria-hidden>{room.emoji}</span>
+                  )}
                   <span>{room.name}</span>
                   {room.is_current_grade && !on && (
-                    <span className="text-[10px] font-black text-blue-600">· siz</span>
+                    <span className={`text-[10px] font-black ${on ? "text-blue-100" : "text-blue-600"}`}>
+                      · siz
+                    </span>
                   )}
+                  {unread && <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden />}
                 </button>
               );
             })}
+            {/* The "+" button: any pupil may open a chat — the school chose that. */}
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-dashed border-blue-300 bg-blue-50/70 px-3 py-1.5 text-[11px] sm:text-xs font-black text-blue-700 hover:bg-blue-100 cursor-pointer whitespace-nowrap"
+            >
+              <IconPlus size={14} />
+              Chat ochish
+            </button>
           </div>
+
+          {/* ------------------------------------------------- room header */}
+          {activeRoom && (
+            <Card
+              variant="elevated"
+              padding="none"
+              className="mb-2.5 p-3 sm:p-4 bg-gradient-to-r from-[#3478F6] via-blue-600 to-indigo-700 text-white border-0"
+            >
+              <div className="flex items-start gap-2.5">
+                <RoomBadge room={activeRoom} size={44} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <h1 className="text-sm sm:text-lg font-black leading-tight truncate">
+                      {activeRoom.name}
+                    </h1>
+                    {activeRoom.is_closed && (
+                      <span className="shrink-0 rounded-md bg-white/20 px-1.5 py-0.5 text-[10px] font-black uppercase">
+                        yopiq
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] sm:text-[11px] font-semibold text-blue-100 truncate">
+                    {activeRoom.bio ??
+                      (activeRoom.kind === "group"
+                        ? `${kindLabel(activeRoom.kind)} · ${activeRoom.owner_name ?? "o‘quvchi"} ochgan`
+                        : gradeName
+                          ? `${gradeName} va butun maktab`
+                          : "Sinfingiz va e'lonxona")}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    onClick={() => setPeopleFor(activeRoom)}
+                    title="Odamlar"
+                    aria-label="Chatdagi odamlar"
+                    className="flex h-9 items-center gap-1 rounded-xl bg-white/15 px-2 text-[10px] font-black hover:bg-white/25 cursor-pointer"
+                  >
+                    <IconUsers size={15} />
+                    {memberCount !== null && <span>{memberCount}</span>}
+                  </button>
+                  {canManageRoom && (
+                    <button
+                      onClick={() => setEditRoom(activeRoom)}
+                      title="Chatni sozlash"
+                      aria-label="Chatni sozlash"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/15 hover:bg-white/25 cursor-pointer"
+                    >
+                      <IconEdit size={15} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
 
           {/* ---------------------------------------------------- the feed */}
           <Card className="mt-2 p-0 overflow-hidden">
@@ -667,6 +794,16 @@ export default function ChatPage({
                     Sinfni tanlash
                   </Button>
                 </div>
+              ) : !canRead ? (
+                <div className="py-8 text-center">
+                  <span className="text-3xl block mb-1.5">🔒</span>
+                  <p className="text-xs sm:text-sm font-bold text-slate-700">
+                    Bu xona yopiq
+                  </p>
+                  <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                    Faqat o‘qituvchilar va administrator yozadi.
+                  </p>
+                </div>
               ) : firstLoad ? (
                 <div className="py-10 text-center">
                   <div className="inline-block h-7 w-7 animate-spin rounded-full border-4 border-slate-300 border-t-transparent" />
@@ -677,13 +814,13 @@ export default function ChatPage({
               ) : feedError ? (
                 <div className="py-8 text-center">
                   <p className="text-xs font-bold text-rose-600">{feedError}</p>
-                  {active && (
+                  {activeId !== null && (
                     <Button
                       variant="secondary"
                       size="sm"
                       className="mt-3"
                       icon={<IconRefresh size={14} />}
-                      onClick={() => void openRoom(active)}
+                      onClick={() => void openRoom(activeId)}
                     >
                       Qayta urinish
                     </Button>
@@ -697,7 +834,7 @@ export default function ChatPage({
                   }
                   description={
                     canPost
-                      ? "Birinchi xabarni shu yozish oynasidan yuboring."
+                      ? "Birinchi xabarni shu yozish oynasidan yuboring — rasm, GIF yoki video ham bo‘ladi."
                       : "Bu yerga faqat o‘qituvchi yozadi — siz esa o‘qib borishingiz mumkin."
                   }
                 />
@@ -730,9 +867,14 @@ export default function ChatPage({
                             )}
                           </p>
                         )}
-                        <p className="text-[12px] sm:text-[13px] font-medium leading-snug whitespace-pre-wrap break-words">
-                          {msg.text}
-                        </p>
+                        {msg.media && (
+                          <MediaBubble media={msg.media} onOpen={(m) => setLightbox(m)} />
+                        )}
+                        {msg.text && (
+                          <p className="text-[12px] sm:text-[13px] font-medium leading-snug whitespace-pre-wrap break-words">
+                            {msg.text}
+                          </p>
+                        )}
                         <div className="mt-1 flex items-center gap-1.5 justify-end">
                           <span
                             className={`text-[10px] font-bold ${
@@ -777,7 +919,43 @@ export default function ChatPage({
             <div className="border-t border-slate-200/80 bg-white px-2.5 py-2 sm:px-4 sm:py-3">
               {canPost ? (
                 <>
-                  <div className="flex items-end gap-2">
+                  {staged && <StagedFile file={staged} onDrop={() => setStaged(null)} />}
+                  {showEmoji && (
+                    <EmojiStrip
+                      onPick={(emoji) => setDraft((prev) => (prev + emoji).slice(0, 500))}
+                    />
+                  )}
+                  <div className="flex items-end gap-1.5">
+                    <input
+                      ref={fileInput}
+                      type="file"
+                      accept={PICKER_ACCEPT}
+                      className="hidden"
+                      onChange={(e) => {
+                        pickFile(e.target.files?.[0] ?? null);
+                        e.target.value = "";
+                      }}
+                    />
+                    <button
+                      onClick={() => fileInput.current?.click()}
+                      title="Rasm, GIF yoki video biriktirish"
+                      aria-label="Fayl biriktirish"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-500 hover:border-blue-300 hover:text-blue-600 cursor-pointer"
+                    >
+                      <IconPaperclip size={17} />
+                    </button>
+                    <button
+                      onClick={() => setShowEmoji((v) => !v)}
+                      title="Emoji"
+                      aria-label="Emoji tanlash"
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border text-lg cursor-pointer ${
+                        showEmoji
+                          ? "border-blue-400 bg-blue-50"
+                          : "border-slate-200 bg-slate-50 hover:border-blue-300"
+                      }`}
+                    >
+                      🙂
+                    </button>
                     <textarea
                       value={draft}
                       onChange={(e) => {
@@ -797,25 +975,34 @@ export default function ChatPage({
                       // one-row box — so on a 320px phone the pupil saw
                       // "3-sinf xonasiga / yozin…" with the word cut in half.
                       placeholder={
-                        activeRoom?.kind === "news" ? "E'lon yozing…" : "Xabar yozing…"
+                        activeRoom?.kind === "news"
+                          ? "E'lon yozing…"
+                          : staged
+                            ? "Rasmga qisqa izoh (ixtiyoriy)…"
+                            : "Xabar yozing…"
                       }
                       className="min-w-0 flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-[12px] sm:text-sm font-medium text-slate-900 outline-none focus:border-blue-400 focus:bg-white max-h-32"
                     />
                     <Button
                       variant="primary"
                       size="sm"
-                      className="shrink-0"
+                      className="h-10 shrink-0"
+                      aria-label="Xabar yuborish"
                       loading={sending}
-                      disabled={draft.trim().length === 0}
+                      disabled={draft.trim().length === 0 && !staged}
                       onClick={() => void send()}
                       icon={sending ? undefined : <IconSend size={14} />}
                     >
-                      {sending ? "" : "Yuborish"}
+                      {/* On a 320px phone the word "Yuborish" ate the room the
+                          pupil needs to read what they typed: below 360px the
+                          button is the paper plane alone. */}
+                      {sending ? "" : <span className="hidden min-[360px]:inline">Yuborish</span>}
                     </Button>
                   </div>
                   <div className="mt-1 flex items-center justify-between gap-2">
                     <p className="text-[10.5px] sm:text-[11px] font-semibold text-slate-400">
-                      500 belgi · 4 qatorgacha · juda tez yozsangiz chat biroz to‘xtatadi
+                      Rasm/GIF 2 MB · video 10 MB · 500 belgi · juda tez yozsangiz chat
+                      biroz to‘xtatadi
                     </p>
                     {draft.length > 400 && (
                       <span className="text-[10px] font-black text-amber-600">
@@ -826,7 +1013,9 @@ export default function ChatPage({
                 </>
               ) : (
                 <p className="text-[11px] sm:text-xs font-semibold text-slate-500 text-center py-1.5">
-                  📣 E'lonxonaga faqat o‘qituvchi yozadi. Siz bu xabarlarni o‘qiy olasiz.
+                  {activeRoom?.kind === "group" && activeRoom.is_closed
+                    ? "🔒 Bu chatni ochgan odam uni yopgan — yozib bo‘lmaydi, o‘qish mumkin."
+                    : "📣 Bu yerga faqat o‘qituvchi yozadi. Siz bu xabarlarni o‘qiy olasiz."}
                 </p>
               )}
               {sendError && (
@@ -841,11 +1030,44 @@ export default function ChatPage({
           </Card>
 
           <p className="mt-2.5 text-[10px] sm:text-[11px] font-semibold text-slate-400 text-center px-2">
-            Chatda ismingiz, profil rasmingiz va xabarlaringiz ko‘rinadi.
-            Qoidalarga rioya qiling — keraksiz xabarni o‘qituvchi o‘chiradi.
+            Chatda ismingiz, profil rasmingiz va xabarlaringiz ko‘rinadi. Qoidalarga rioya
+            qiling — keraksiz xabarni o‘qituvchi o‘chiradi.
           </p>
         </>
       )}
+
+      <RoomFormSheet
+        open={createOpen}
+        room={null}
+        token={token}
+        onClose={() => setCreateOpen(false)}
+        onSaved={(saved) => {
+          setCreateOpen(false);
+          roomSaved(saved, true);
+        }}
+      />
+      <RoomFormSheet
+        open={editRoom !== null}
+        room={editRoom}
+        token={token}
+        onClose={() => setEditRoom(null)}
+        onSaved={(saved) => {
+          setEditRoom(null);
+          roomSaved(saved, false);
+        }}
+      />
+      {peopleFor && (
+        <PeopleSheet
+          open={peopleFor !== null}
+          room={peopleFor}
+          token={token}
+          canManage={peopleFor.is_mine || isAdmin}
+          notify={notify}
+          onMembersChanged={onMembersChanged}
+          onClose={() => setPeopleFor(null)}
+        />
+      )}
+      <Lightbox media={lightbox} onClose={() => setLightbox(null)} />
     </div>
   );
 }

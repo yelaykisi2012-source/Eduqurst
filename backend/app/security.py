@@ -57,3 +57,21 @@ def is_admin_user(user: User) -> bool:
     surface stays tied to the ids listed in ADMIN_TELEGRAM_IDS.
     """
     return user.telegram_id in get_settings().admin_id_set
+
+
+def is_teacher_user(user: User) -> bool:
+    """A staff member who entered the school's code (Settings.TEACHER_CODE).
+
+    Deliberately NOT true for an admin: `is_admin_user` answers "who may run the
+    whole school", this answers "who is a teacher here". A person can be both.
+    """
+    return bool(user.is_teacher)
+
+
+def is_staff_user(user: User) -> bool:
+    """Either kind of adult — the one check the chat rules use.
+
+    The teachers' room and the e'lonxona are for grown-ups, and the admin who
+    owns the school is one of them, so both paths pass here.
+    """
+    return bool(user.is_teacher) or is_admin_user(user)
