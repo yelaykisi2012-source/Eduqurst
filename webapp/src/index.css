@@ -227,6 +227,16 @@ body {
   }
 }
 
+/* A view that scrolls inside itself (the chat). Here the shell must NOT grow —
+   it is exactly the height the pupil can see, so the message list gets the
+   leftover room and only it scrolls. --vh is written by App.tsx from
+   window.visualViewport, which is the height left after Telegram's address bar
+   and the keyboard. The plain 100vh line is the first-frame fallback. */
+.app-shell--fixed {
+  height: 100vh;
+  height: var(--vh, 100dvh);
+}
+
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
   .animate-blob-1,

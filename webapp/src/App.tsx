@@ -116,6 +116,31 @@ export default function App() {
     window.setTimeout(() => setToast(null), 2500);
   };
 
+  /**
+   * Publish the height the pupil can actually SEE as --vh, and keep it current.
+   *
+   * Telegram's WebView keeps an address bar, and a keyboard takes another
+   * hundred pixels the moment a message is being typed. The chat fills this
+   * height (see .app-shell--fixed in index.css), so the input line stays above
+   * the keyboard instead of under it. On an iPhone the WebView also slides the
+   * whole page up on its own, so at worst the input sits a little higher than
+   * strictly needed — the safe direction; too small would hide it.
+   */
+  useEffect(() => {
+    const root = document.documentElement;
+    const publish = () => {
+      const visible = window.visualViewport?.height ?? window.innerHeight;
+      if (visible > 0) root.style.setProperty("--vh", `${Math.round(visible)}px`);
+    };
+    publish();
+    window.addEventListener("resize", publish);
+    window.visualViewport?.addEventListener("resize", publish);
+    return () => {
+      window.removeEventListener("resize", publish);
+      window.visualViewport?.removeEventListener("resize", publish);
+    };
+  }, []);
+
   const loadHome = useCallback(async (tk: string) => {
     const [subs, prog] = await Promise.all([api.subjects(tk), api.progress(tk)]);
     setSubjects(subs);
@@ -332,6 +357,15 @@ export default function App() {
 
   const currentTab: NavTab = pinnedTab ?? derivedTab;
 
+  /**
+   * The chat reads like a messenger: the message list scrolls INSIDE the page
+   * and the room header / input line stay put. That only works if the shell
+   * stops growing with the content and is exactly as tall as the screen, so
+   * this one view gets the fixed-height treatment; every other page keeps
+   * scrolling the whole window the way it always has.
+   */
+  const fullHeightView = phase === "home" && view.kind === "chat";
+
   const handleTabChange = (tab: NavTab) => {
     if (tab === "home") navTo({ kind: "home" });
     else if (tab === "lessons") {
@@ -367,7 +401,11 @@ export default function App() {
   );
 
   return (
-    <div className="app-shell flex min-h-screen flex-col bg-[#F7F9FC] text-slate-900 antialiased selection:bg-blue-100 selection:text-blue-900">
+    <div
+      className={`app-shell flex flex-col bg-[#F7F9FC] text-slate-900 antialiased selection:bg-blue-100 selection:text-blue-900 ${
+        fullHeightView ? "app-shell--fixed overflow-hidden" : "min-h-screen"
+      }`}
+    >
       {/* Top Navigation */}
       {phase === "home" && (
         <Navbar
@@ -386,8 +424,17 @@ export default function App() {
           tabs instead of sitting in a narrower column than the bar above them.
           The bottom padding is the phone tab bar + the iOS home indicator, which
           a fixed pb-32 got wrong on both ends (dead space on Android, the last
-          "Hisobdan chiqish" button hidden behind the bar on an iPhone). */}
-      <main className="mx-auto w-full max-w-6xl flex-1 px-3 sm:px-6 pt-1.5 pb-[calc(5.5rem_+_env(safe-area-inset-bottom,0px))] sm:pt-6 sm:pb-10">
+          "Hisobdan chiqish" button hidden behind the bar on an iPhone).
+          It switches back to a normal padding at md — the tab bar is md:hidden,
+          so between 640 and 767px it was still floating over the bottom of the
+          page (and over the chat's input line).
+          In the chat the area itself becomes the scroller: min-h-0 + flex-col is
+          what lets the message list take the leftover height and scroll inside. */}
+      <main
+        className={`mx-auto w-full max-w-6xl flex-1 px-3 sm:px-6 pt-1.5 pb-[calc(5.5rem_+_env(safe-area-inset-bottom,0px))] sm:pt-6 md:pb-10 ${
+          fullHeightView ? "flex min-h-0 flex-col" : ""
+        }`}
+      >
         {/* Loading / Boot states */}
         {phase === "boot" || phase === "busy" ? (
           <div className="mx-auto max-w-md py-20 text-center animate-fade-in">

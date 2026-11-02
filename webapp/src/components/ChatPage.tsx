@@ -14,8 +14,10 @@ import Card from "./ui/Card";
 import Button from "./ui/Button";
 import Badge from "./ui/Badge";
 import EmptyState from "./ui/EmptyState";
+import Sheet from "./ui/Sheet";
 import {
   IconChat,
+  IconChevronDown,
   IconEdit,
   IconPaperclip,
   IconPlus,
@@ -100,6 +102,8 @@ function groupRooms(rooms: ChatRoom[]): ChatRoom[] {
 function ModerationQueue({
   queue,
   busyId,
+  open,
+  onToggle,
   onApprove,
   onReject,
   onDelete,
@@ -108,6 +112,10 @@ function ModerationQueue({
 }: {
   queue: ChatPendingQueue | null;
   busyId: number | null;
+  /** Whether the queue sheet is open. It starts closed: an adult taps the bar,
+      judges the pending messages full-screen, and closes it again. */
+  open: boolean;
+  onToggle: () => void;
   onApprove: (id: number) => void;
   onReject: (id: number, reason: string) => void;
   onDelete: (id: number) => void;
@@ -132,45 +140,71 @@ function ModerationQueue({
     setReason("");
   };
 
+  const modeLine =
+    queue === null
+      ? "Yuklanmoqda…"
+      : queue.premoderation
+        ? "Bu rejimda har bir xabar avval tekshiriladi."
+        : "Filtsiz rejim: xabarlar darhol chiqadi — keraksizini o‘chiring.";
+
   return (
-    <Card className="mb-3 sm:mb-4 p-3 sm:p-4 border-purple-200/80 bg-purple-50/40">
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-xs sm:text-sm font-black text-slate-900">
-            🛡️ Tasdiq navbati
-          </h2>
-          <p className="text-[10px] sm:text-[11px] font-semibold text-slate-500 mt-0.5">
-            {queue === null
-              ? "Yuklanmoqda…"
-              : queue.premoderation
-                ? "Bu rejimda har bir xabar avval tekshiriladi."
-                : "Filtsiz rejim: xabarlar darhol chiqadi — keraksizini o‘chiring."}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {queue && queue.count > 0 && (
-            <Badge variant="purple" size="sm">
-              {queue.count} ta kutilmoqda
-            </Badge>
-          )}
+    <>
+      {/* One slim bar stays in the chat; the list itself opens as a sheet OVER it.
+          The list used to unfold in place and push everything down — on a
+          320x568 phone the message feed was left 24px tall, which is the same
+          "chat yarim ekran" complaint wearing an admin's hat. A sheet costs the
+          chat nothing and gives the adult a full screen to judge messages on. */}
+      <Card className="mb-2 shrink-0 p-2 sm:p-3 border-purple-200/80 bg-purple-50/40">
+        <div className="flex items-center justify-between gap-2">
           <button
-            onClick={onRefresh}
-            title="Qayta yangilash"
-            className="flex h-8 w-8 items-center justify-center rounded-xl bg-white text-slate-500 border border-slate-200 hover:text-purple-600 cursor-pointer"
+            onClick={onToggle}
+            aria-expanded={open}
+            className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left"
           >
-            <IconRefresh size={15} />
+            <IconChevronDown size={16} className="shrink-0 -rotate-90 text-purple-600" />
+            <span className="min-w-0">
+              <span className="block text-xs sm:text-sm font-black text-slate-900">
+                🛡️ Tasdiq navbati
+                {(queue?.count ?? 0) > 0 && (
+                  <span className="ml-1 text-purple-700">· {queue?.count} ta</span>
+                )}
+              </span>
+              <span className="mt-0.5 block truncate text-[10px] sm:text-[11px] font-semibold text-slate-500">
+                Bosib oching — xabarlarni shu yerda tasdiqlaysiz.
+              </span>
+            </span>
           </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* The count already sits in the title ("· 4 ta"), so on a 320px phone
+                the coloured badge is dropped rather than forcing this bar onto
+                three lines — the chat needs every pixel there. */}
+            {queue && queue.count > 0 && (
+              <span className="hidden min-[380px]:inline-flex">
+                <Badge variant="purple" size="sm">
+                  {queue.count} ta kutilmoqda
+                </Badge>
+              </span>
+            )}
+            <button
+              onClick={onRefresh}
+              title="Qayta yangilash"
+              className="flex h-8 w-8 items-center justify-center rounded-xl bg-white text-slate-500 border border-slate-200 hover:text-purple-600 cursor-pointer"
+            >
+              <IconRefresh size={15} />
+            </button>
+          </div>
         </div>
-      </div>
+      </Card>
 
-      {queue !== null && queue.items.length === 0 && (
-        <p className="mt-2 text-[11px] font-semibold text-slate-500">
-          Navbat bo‘sh. Xabar yuborilganda shu yerda ko‘rinadi.
-        </p>
-      )}
-
-      {queue !== null && queue.items.length > 0 && (
-        <ul className="mt-2 space-y-2">
+      <Sheet open={open} title="🛡️ Tasdiq navbati" subtitle={modeLine} onClose={onToggle}>
+        {queue === null ? (
+          <p className="text-[11px] font-semibold text-slate-500">Yuklanmoqda…</p>
+        ) : queue.items.length === 0 ? (
+          <p className="text-[11px] font-semibold text-slate-500">
+            Navbat bo‘sh. Xabar yuborilganda shu yerda ko‘rinadi.
+          </p>
+        ) : (
+          <ul className="space-y-2">
           {queue.items.map((item) => (
             <li
               key={item.id}
@@ -270,8 +304,9 @@ function ModerationQueue({
             </li>
           ))}
         </ul>
-      )}
-    </Card>
+        )}
+      </Sheet>
+    </>
   );
 }
 
@@ -312,6 +347,9 @@ export default function ChatPage({
   const [peopleFor, setPeopleFor] = useState<ChatRoom | null>(null);
   const [lightbox, setLightbox] = useState<ChatMedia | null>(null);
 
+  /** The admin's moderation list starts folded — see ModerationQueue. */
+  const [queueOpen, setQueueOpen] = useState(false);
+
   // Newest id the pupil has actually seen per room — drives the unread dot.
   const [seen, setSeen] = useState<Record<number, number>>({});
 
@@ -322,6 +360,15 @@ export default function ChatPage({
   const feedBox = useRef<HTMLDivElement | null>(null);
   const roomStrip = useRef<HTMLDivElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  /**
+   * Is the pupil looking at the newest message right now?
+   *
+   * Read from the feed's own scroll position, because a photo or a GIF only
+   * takes up its real height a moment AFTER it is rendered — and that is when
+   * "jump to the newest" lands somewhere in the middle instead. Whoever is
+   * scrolled up reading history must never be yanked back down.
+   */
+  const atBottom = useRef(true);
 
   const ordered = useMemo(() => (rooms ? groupRooms(rooms) : null), [rooms]);
   const activeRoom = useMemo(
@@ -439,11 +486,57 @@ export default function ChatPage({
     else setFirstLoad(false);
   }, [activeId, openRoom]);
 
+  /**
+   * Put the newest message back in sight.
+   *
+   * The list scrolls inside its own box now, so anything that changes that box's
+   * height — a room opening, a message arriving, the keyboard pushing the feed
+   * up — leaves scrollTop where it was, i.e. somewhere in the middle of the
+   * conversation. Every one of those moments asks for this.
+   */
+  const scrollToLatest = () => {
+    atBottom.current = true;
+    const box = feedBox.current;
+    if (!box) return;
+    window.requestAnimationFrame(() => {
+      box.scrollTop = box.scrollHeight;
+    });
+  };
+
+  /**
+   * Keep the newest message in sight when a photo or GIF finishes loading.
+   *
+   * 'load' does not bubble, so the feed listens for it in the capture phase —
+   * that is what catches an image the size of which React never knew. Only
+   * re-pins for a pupil who was already at the bottom.
+   */
+  useEffect(() => {
+    const box = feedBox.current;
+    if (!box) return;
+    const onLoaded = (event: Event) => {
+      const el = event.target as HTMLElement | null;
+      if (!el || (el.tagName !== "IMG" && el.tagName !== "VIDEO")) return;
+      if (atBottom.current) box.scrollTop = box.scrollHeight;
+    };
+    box.addEventListener("load", onLoaded, true);
+    return () => box.removeEventListener("load", onLoaded, true);
+  }, [ordered, activeId]);
+
   // Jump to the newest message when a room opens.
   useEffect(() => {
     if (firstLoad || messages.length === 0) return;
     const box = feedBox.current;
-    if (box) box.scrollTop = box.scrollHeight;
+    if (box) {
+      atBottom.current = true;
+      box.scrollTop = box.scrollHeight;
+    }
+    // Once more after the paint: the media in this room may still be loading.
+    const again = window.setTimeout(() => {
+      if (atBottom.current && feedBox.current) {
+        feedBox.current.scrollTop = feedBox.current.scrollHeight;
+      }
+    }, 400);
+    return () => window.clearTimeout(again);
     // Only on the first render of a freshly opened room.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstLoad]);
@@ -594,11 +687,7 @@ export default function ChatPage({
       setStaged(null);
       setShowEmoji(false);
       notify(result.message_uz);
-      const box = feedBox.current;
-      if (box)
-        window.requestAnimationFrame(() => {
-          box.scrollTop = box.scrollHeight;
-        });
+      scrollToLatest();
       if (isAdmin) void refreshQueue();
       // A brand-new chat only exists in the list after the server says so.
       void loadRooms(activeRoom.id);
@@ -636,11 +725,18 @@ export default function ChatPage({
   const canRead = activeRoom?.can_read ?? true;
 
   return (
-    <div className="mx-auto max-w-2xl animate-fade-in py-1 pb-32 sm:pb-12">
+    // A messenger layout: this column is exactly as tall as the space App.tsx
+    // leaves on screen, the chips and the room header sit still at the top, the
+    // input line sits still at the bottom, and only the message list scrolls.
+    // (It used to be a 52dvh card in the middle of a normal scrolling page,
+    // which is what "chat yarim ekran" meant.)
+    <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 animate-fade-in flex-col">
       {isAdmin && (
         <ModerationQueue
           queue={queue}
           busyId={busyId}
+          open={queueOpen}
+          onToggle={() => setQueueOpen((v) => !v)}
           onApprove={(id) => void decide(id, "approve")}
           onReject={(id, reason) => void decide(id, "reject", reason)}
           onDelete={(id) => void decide(id, "delete")}
@@ -670,11 +766,11 @@ export default function ChatPage({
           </p>
         </div>
       ) : (
-        <>
+        <div className="flex min-h-0 flex-1 flex-col">
           {/* ------------------------------------------------- rooms strip */}
           <div
             ref={roomStrip}
-            className="no-scrollbar -mx-0.5 flex items-center gap-1.5 overflow-x-auto px-0.5 pb-2"
+            className="no-scrollbar -mx-0.5 flex shrink-0 items-center gap-1.5 overflow-x-auto px-0.5 py-1.5"
           >
             {ordered.map((room) => {
               const on = room.id === activeId;
@@ -724,7 +820,7 @@ export default function ChatPage({
             <Card
               variant="elevated"
               padding="none"
-              className="mb-2.5 p-3 sm:p-4 bg-gradient-to-r from-[#3478F6] via-blue-600 to-indigo-700 text-white border-0"
+              className="mb-2 shrink-0 p-2.5 sm:p-4 bg-gradient-to-r from-[#3478F6] via-blue-600 to-indigo-700 text-white border-0"
             >
               <div className="flex items-start gap-2.5">
                 <RoomBadge room={activeRoom} size={44} />
@@ -774,10 +870,16 @@ export default function ChatPage({
           )}
 
           {/* ---------------------------------------------------- the feed */}
-          <Card className="mt-2 p-0 overflow-hidden">
+          <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
             <div
               ref={feedBox}
-              className="max-h-[52dvh] min-h-[220px] overflow-y-auto px-2.5 py-3 sm:px-4 bg-slate-50/60"
+              onScroll={() => {
+                const box = feedBox.current;
+                if (box)
+                  atBottom.current =
+                    box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+              }}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3 sm:px-4 bg-slate-50/60"
             >
               {needGrade ? (
                 <div className="py-8 text-center">
@@ -916,7 +1018,7 @@ export default function ChatPage({
             </div>
 
             {/* ------------------------------------------------- composer */}
-            <div className="border-t border-slate-200/80 bg-white px-2.5 py-2 sm:px-4 sm:py-3">
+            <div className="shrink-0 border-t border-slate-200/80 bg-white px-2.5 py-2 sm:px-4 sm:py-3">
               {canPost ? (
                 <>
                   {staged && <StagedFile file={staged} onDrop={() => setStaged(null)} />}
@@ -945,7 +1047,12 @@ export default function ChatPage({
                       <IconPaperclip size={17} />
                     </button>
                     <button
-                      onClick={() => setShowEmoji((v) => !v)}
+                      onClick={() => {
+                        setShowEmoji((v) => !v);
+                        // The strip steals the feed's bottom rows — keep the
+                        // newest message above it.
+                        window.setTimeout(scrollToLatest, 60);
+                      }}
                       title="Emoji"
                       aria-label="Emoji tanlash"
                       className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border text-lg cursor-pointer ${
@@ -967,6 +1074,14 @@ export default function ChatPage({
                           e.preventDefault();
                           void send();
                         }
+                      }}
+                      // The keyboard takes a third of the screen, so the feed
+                      // gets shorter at exactly the moment the pupil wants to
+                      // read the last message. Twice, because on an iPhone the
+                      // keyboard is only fully up a few hundred ms after focus.
+                      onFocus={() => {
+                        scrollToLatest();
+                        window.setTimeout(scrollToLatest, 400);
                       }}
                       rows={1}
                       maxLength={500}
@@ -1001,8 +1116,12 @@ export default function ChatPage({
                   </div>
                   <div className="mt-1 flex items-center justify-between gap-2">
                     <p className="text-[10.5px] sm:text-[11px] font-semibold text-slate-400">
-                      Rasm/GIF 2 MB · video 10 MB · 500 belgi · juda tez yozsangiz chat
-                      biroz to‘xtatadi
+                      Rasm/GIF 2 MB · video 10 MB · 500 belgi
+                      {/* True, but rare, and on a 390px phone it cost a whole
+                          second line — one message row — to every pupil. */}
+                      <span className="hidden min-[420px]:inline">
+                        {" "}· juda tez yozsangiz chat biroz to‘xtatadi
+                      </span>
                     </p>
                     {draft.length > 400 && (
                       <span className="text-[10px] font-black text-amber-600">
@@ -1029,11 +1148,12 @@ export default function ChatPage({
             </div>
           </Card>
 
-          <p className="mt-2.5 text-[10px] sm:text-[11px] font-semibold text-slate-400 text-center px-2">
-            Chatda ismingiz, profil rasmingiz va xabarlaringiz ko‘rinadi. Qoidalarga rioya
-            qiling — keraksiz xabarni o‘qituvchi o‘chiradi.
+          {/* One line, not two: every line under the input is a message row the
+              pupil on a small phone cannot read. */}
+          <p className="mt-2 shrink-0 px-2 text-center text-[10px] sm:text-[11px] font-semibold text-slate-400">
+            Ismingiz va xabarlaringiz ko‘rinadi — qoidalarga rioya qiling.
           </p>
-        </>
+        </div>
       )}
 
       <RoomFormSheet
